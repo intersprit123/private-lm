@@ -1,0 +1,39 @@
+name: Android APK
+on:
+  push:
+    branches: [android]
+  pull_request:
+    branches: [android]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.35.7'
+          cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Flutter dependencies
+        run: flutter pub get
+      - name: Analyze Dart sources
+        run: flutter analyze --no-pub
+        continue-on-error: true
+      - name: Build Android APK (release, debug-signed for CI testing)
+        env:
+          PRIVATELM_ALLOW_DEBUG_RELEASE_SIGNING: 'true'
+        run: flutter build apk --release --target-platform android-arm64
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrivateLM-Android-arm64-${{ github.sha }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
