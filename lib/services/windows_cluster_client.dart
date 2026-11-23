@@ -82,6 +82,19 @@ class WindowsClusterClient {
     );
   }
 
+  Future<Map<String, dynamic>> setComputeOptions({
+    required String executionMode,
+    required String gpuPolicy,
+    required List<String> selectedGpuIds,
+  }) async {
+    final base = await _storage.read(key: _hostKey);
+    final pin = await _storage.read(key: _pinKey);
+    final token = await _storage.read(key: _credentialKey);
+    if (base == null || pin == null || token == null) throw StateError("This device is not paired with a Windows coordinator.");
+    return _request(base: base, pin: pin, token: token, path: "/api/v1/compute", method: "POST", body: {
+      "execution_mode": executionMode, "gpu_policy": gpuPolicy, "selected_gpu_ids": selectedGpuIds,
+    }, authenticated: true);
+  }
   Future<void> disconnect() async {
     await _storage.delete(key: _hostKey);
     await _storage.delete(key: _pinKey);

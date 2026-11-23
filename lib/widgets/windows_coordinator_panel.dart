@@ -186,6 +186,7 @@ class _WindowsCoordinatorPanelState extends State<WindowsCoordinatorPanel> {
         _status = 'Securely paired · synchronizing configuration';
       });
       await _applyConfig(config);
+      if (mounted) await _showComputeMenu(config);
       _timer?.cancel();
       _timer = Timer.periodic(const Duration(seconds: 5), (_) => _sync());
     } catch (error) {
@@ -235,13 +236,10 @@ class _WindowsCoordinatorPanelState extends State<WindowsCoordinatorPanel> {
       await hive.setSetting(AppConstants.keyTemperature, temperature);
       await hive.setSetting('windows_cluster_received_config', config);
       final unsupported = <String>[];
-      if (mode != 'performance') unsupported.add('remote compute mode');
-      if (config['gpu_policy'] != 'auto') unsupported.add('GPU policy');
+      // Execution mode and GPU selection are coordinator-side Windows settings.
       if (config['image_backend'] != 'auto') unsupported.add('image backend');
       if (config['startup_behavior'] != 'remember') unsupported.add('startup behavior');
       if (config['text_scale'] != 'medium') unsupported.add('text scale');
-      if ((config['selected_gpu_ids'] is List) &&
-          (config['selected_gpu_ids'] as List).isNotEmpty) unsupported.add('selected GPU IDs');
       if (unsupported.isNotEmpty) {
         rejection = 'Chat defaults were saved, but this Android build cannot yet apply: ' +
             unsupported.join(', ') + '. Existing Android RPC clustering remains separate.';
@@ -263,6 +261,40 @@ class _WindowsCoordinatorPanelState extends State<WindowsCoordinatorPanel> {
     }
   }
 
+  Future<void> _showComputeMenu([Map<String, dynamic>? supplied]) async {
+    final config = supplied ?? await _client.heartbeat(await _identity());
+    final raw = config["available_gpu_devices"];
+    final devices = raw is List ? raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).where((e) => (e["id"]?.toString() ?? "").isNotEmpty).toList() : <Map<String, dynamic>>[];
+    if (!mounted) return;
+    if (devices.isEmpty) { setState(() => _details = "No Windows GPU inventory received. On Windows, select llama-server.exe and click Detect GPUs first."); return; }
+    final ids = devices.map((e) => e["id"].toString()).toList();
+    var mode = config["execution_mode"] == "extreme_force" ? "extreme_force" : "performance";
+    var policy = config["gpu_policy"] == "all_compatible" ? "all_compatible" : "single";
+    var selected = (config["selected_gpu_ids"] is List ? config["selected_gpu_ids"] as List : const []).map((e) => e.toString()).where(ids.contains).toList();
+    if (selected.isEmpty) selected = [ids.first];
+    if (policy == "single") selected = [selected.first];
+    final apply = await showDialog<bool>(context: context, barrierDismissible: false, builder: (dialogContext) => StatefulBuilder(builder: (ctx, setDialogState) => AlertDialog(
+      title: const Text("Choose Windows compute mode"),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Text("Choose one detected GPU or use all detected GPUs. CPU sharing is not included yet."),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(value: mode, decoration: const InputDecoration(labelText: "Execution mode"), items: const [DropdownMenuItem(value: "performance", child: Text("Performance")), DropdownMenuItem(value: "extreme_force", child: Text("Maximum GPU use"))], onChanged: (v) => setDialogState(() => mode = v ?? mode)),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(value: policy, decoration: const InputDecoration(labelText: "GPU mode"), items: const [DropdownMenuItem(value: "single", child: Text("Use one GPU")), DropdownMenuItem(value: "all_compatible", child: Text("Use all GPUs"))], onChanged: (v) => setDialogState(() { policy = v ?? policy; if (policy == "single" && selected.length > 1) selected = [selected.first]; if (policy == "all_compatible") selected = List<String>.from(ids); })),
+        if (policy == "single") ...[
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(value: selected.first, decoration: const InputDecoration(labelText: "GPU device"), items: [for (final d in devices) DropdownMenuItem(value: d["id"].toString(), child: Text("${d["id"]} — ${d["name"] ?? "GPU"}"))], onChanged: (v) => setDialogState(() { if (v != null) selected = [v]; })),
+        ] else ...[const SizedBox(height: 8), Text("All GPUs: ${devices.map((d) => d["name"] ?? d["id"]).join(", ")}")],
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text("Cancel")), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text("Apply"))],
+    )));
+    if (apply != true) return;
+    try {
+      final updated = await _client.setComputeOptions(executionMode: mode, gpuPolicy: policy, selectedGpuIds: policy == "all_compatible" ? ids : selected);
+      await _applyConfig(updated);
+      if (mounted) setState(() => _details = "GPU selection sent to Windows. The host applies it to inference.");
+    } catch (error) { if (mounted) setState(() => _status = "GPU selection failed: $error"); }
+  }
   Future<void> _disconnect() async {
     _timer?.cancel();
     await _client.disconnect();
@@ -349,6 +381,8 @@ class _WindowsCoordinatorPanelState extends State<WindowsCoordinatorPanel> {
               ),
             ] else ...[
               const SizedBox(height: 10),
+              SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: _busy ? null : () => _showComputeMenu(), icon: const Icon(Icons.tune_rounded), label: const Text("Choose compute mode and GPU"))),
+              const SizedBox(height: 8),
               Row(children: [
                 const Icon(Icons.lock_rounded, size: 16),
                 const SizedBox(width: 6),
