@@ -28,7 +28,7 @@ jobs:
       - name: Upload Windows host EXE
         uses: actions/upload-artifact@v4
         with:
-          name: PrivateLM-Windows-Host-\${{ github.sha }}
+          name: PrivateLM-Windows-Host-feature-device-cluster-foundation
           path: dist/PrivateLM-Windows-Host.exe
           if-no-files-found: error
           retention-days: 14
