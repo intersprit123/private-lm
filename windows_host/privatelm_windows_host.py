@@ -75,6 +75,7 @@ class HostApp:
         self.startup = tk.StringVar(value=self.saved.get("startup_behavior", "ask"))
         self.remote_workers = tk.StringVar(value=self.saved.get("remote_workers", ""))
         self.gpu_devices = tk.StringVar(value=self.saved.get("gpu_devices", ""))
+        self.llama_devices: list[tuple[str, str]] = []
         self.key = tk.StringVar(value="plm_" + secrets.token_urlsafe(24))
         self.status = tk.StringVar(value="Inference stopped")
         self.cluster_status = tk.StringVar(value="Cluster control stopped")
@@ -306,14 +307,45 @@ class HostApp:
         self.log(f"Detailed inference log: {self.log_path}")
 
     def _settings_page(self):
-        self._section(self.page_area, "Advanced settings", "Configuration options are separated from the main dashboard.")
-        self._field(self.page_area, "Remote RPC nodes", self.remote_workers)
-        self._field(self.page_area, "Local GPU device IDs", self.gpu_devices)
-        self._field(self.page_area, "Execution mode", self.mode)
-        self._field(self.page_area, "GPU policy", self.gpu_policy)
-        self._field(self.page_area, "Image backend", self.image_backend)
-        self._field(self.page_area, "Text size", self.text_scale)
-        ttk.Button(self.page_area, text="Save settings", command=self._save_settings).pack(anchor="w", pady=10)
+        self._section(self.page_area, "Advanced settings",
+                      "Choose options from the lists. GPU names and IDs come from llama.cpp device detection.")
+        self._field(self.page_area, "Remote RPC nodes", self.remote_workers,
+                    "Optional llama.cpp RPC endpoints, comma-separated.")
+        self._section(self.page_area, "Execution")
+        self._choice(self.page_area, "Execution mode", self.mode,
+                     ["performance", "performance_group", "extreme_force"])
+        self._choice(self.page_area, "GPU policy", self.gpu_policy,
+                     ["auto", "cpu", "single", "all_compatible"])
+        self._choice(self.page_area, "Image backend", self.image_backend, ["auto", "cpu", "gpu"])
+        self._section(self.page_area, "Detected GPU devices")
+        ttk.Button(self.page_area, text="Detect GPUs from llama.cpp", command=self.detect_llama_devices).pack(anchor="w", pady=6)
+        self.gpu_checks = ttk.Frame(self.page_area, style="Panel.TFrame", padding=10)
+        self.gpu_checks.pack(fill="x", pady=4)
+        self._render_gpu_choices()
+        self._section(self.page_area, "Interface & startup")
+        self._choice(self.page_area, "Text size", self.text_scale, ["small", "medium", "large"])
+        self._choice(self.page_area, "Startup behaviour", self.startup, ["remember", "ask"])
+        ttk.Button(self.page_area, text="Save settings", command=self._save_settings).pack(anchor="w", pady=12)
+
+    def _render_gpu_choices(self):
+        if not hasattr(self, "gpu_checks"):
+            return
+        for child in self.gpu_checks.winfo_children():
+            child.destroy()
+        selected = {x.strip() for x in self.gpu_devices.get().split(",") if x.strip()}
+        if not self.llama_devices:
+            ttk.Label(self.gpu_checks, text="No llama.cpp GPU list yet. Select llama-server.exe, then tap Detect GPUs.",
+                      background=PANEL, foreground=MUTED, wraplength=760).pack(anchor="w")
+            return
+        self._gpu_vars = {}
+        for device_id, device_name in self.llama_devices:
+            var = tk.BooleanVar(value=device_id in selected)
+            self._gpu_vars[device_id] = var
+            ttk.Checkbutton(self.gpu_checks, text=f"{device_id}  —  {device_name}",
+                            variable=var, command=self._sync_gpu_selection).pack(anchor="w", pady=3)
+
+    def _sync_gpu_selection(self):
+        self.gpu_devices.set(",".join(device_id for device_id, var in self._gpu_vars.items() if var.get()))
 
     def _field(self, parent, label, variable, hint=None):
         ttk.Label(parent, text=label, background=PANEL, foreground=TEXT).pack(anchor="w", pady=(10, 3))
@@ -508,14 +540,20 @@ class HostApp:
             output = result.stdout + "\n" + result.stderr
             devices = []
             for line in output.splitlines():
-                match = re.match(r"^\s*([A-Za-z][A-Za-z0-9_-]*\d+)\s*:", line)
-                if match and match.group(1).upper() != "CPU": devices.append(match.group(1))
+                match = re.match(r"^\s*([A-Za-z][A-Za-z0-9_-]*\d+)\s*:\s*(.*?)\s*$", line)
+                if match and match.group(1).upper() != "CPU":
+                    devices.append((match.group(1), match.group(2) or "GPU device"))
             if not devices:
                 self.log("llama-server did not list GPU devices. Check that the EXE includes a GPU backend.")
                 messagebox.showinfo(APP, "No GPU device IDs were parsed. Review the activity log and ensure your llama-server build includes a GPU backend.")
                 return
-            self.gpu_devices.set(",".join(dict.fromkeys(devices)))
-            self.log("llama.cpp GPU devices: " + ", ".join(devices))
+            self.llama_devices = list(dict(devices).items())
+            # Keep only selections that still exist after re-detection.
+            valid = {device_id for device_id, _name in self.llama_devices}
+            selected = [x.strip() for x in self.gpu_devices.get().split(",") if x.strip() in valid]
+            self.gpu_devices.set(",".join(selected or valid))
+            self._render_gpu_choices()
+            self.log("llama.cpp GPU devices: " + ", ".join(f"{i} — {n}" for i, n in self.llama_devices))
         except (OSError, subprocess.SubprocessError) as exc:
             messagebox.showerror(APP, f"Device detection failed: {exc}")
 
