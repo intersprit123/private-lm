@@ -301,11 +301,17 @@ class HostApp:
             hw = detect_hardware()
             ram = f"{hw.ram_available_mb or '?'} MB available / {hw.ram_total_mb or '?'} MB total RAM"
             gpus = "; ".join(f"{g.name} ({g.memory_total_mb or 'VRAM unknown'} MB)" for g in hw.gpus) or "No GPU inventory available"
-            self.hardware_text.set(f"{hw.platform} · {hw.cpu_name} · {hw.cpu_logical_threads} logical threads · {ram}\n{gpus}")
+            self.hw = hw
+            summary = f"{hw.platform} · {hw.cpu_name} · {hw.cpu_logical_threads} logical threads · {ram}\n{gpus}"
+            self.hardware_text.set(summary)
+            if hasattr(self, "hardware_summary"):
+                self.hardware_summary.set(summary)
             self.threads.set(self.threads.get() if int(self.threads.get() or 0) > 0 else str(hw.cpu_logical_threads))
             self.log("Hardware inventory complete. Backend compatibility is checked separately at launch.")
         except Exception as exc:
             self.hardware_text.set(f"Hardware detection unavailable: {exc}")
+            if hasattr(self, "hardware_summary"):
+                self.hardware_summary.set(f"Hardware detection unavailable: {exc}")
 
     def pick_server(self) -> None:
         path = filedialog.askopenfilename(title="Select llama-server.exe", filetypes=[("Windows executable", "*.exe"), ("All files", "*.*")])
