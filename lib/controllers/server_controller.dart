@@ -72,10 +72,12 @@ class ServerController extends GetxController {
     if (isRunning.value || isStarting.value) return;
     lastError.value = null;
     if (!hasLocalModel) {
-      lastError.value = 'Load a local GGUF or LiteRT-LM model first.';
-      showToast('Server not started', lastError.value!,
-          tone: ToastTone.warning);
-      return;
+      // Allow network/health checks without loading a model. The health
+      // endpoint and model-list endpoint can verify connectivity; inference
+      // requests will only work after a model is loaded.
+      Get.find<AppLogService>().warning(
+        '[Connection] Starting API server without a loaded model; connection tests only.',
+      );
     }
 
     isStarting.value = true;
