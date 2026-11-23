@@ -62,7 +62,7 @@ class ClusterConfig:
         if len(self.available_gpu_devices) > 64 or any(not isinstance(x, dict) or not x.get("id") or len(str(x.get("id"))) > 128 or len(str(x.get("name", ""))) > 200 for x in self.available_gpu_devices):
             raise ValueError("Invalid detected GPU inventory")
         available_ids = {str(x["id"]) for x in self.available_gpu_devices}
-        if any(x not in available_ids for x in self.selected_gpu_ids):
+        if available_ids and any(x not in available_ids for x in self.selected_gpu_ids):
             raise ValueError("Selected GPU is not in the detected inventory")
         return self
 
