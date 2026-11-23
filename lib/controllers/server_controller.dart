@@ -138,6 +138,7 @@ class ServerController extends GetxController {
     await _hive.setSetting(
         AppConstants.keyServerAllowNetwork, allowNetwork.value);
     _server.updateApiKey(_effectiveApiKey);
+    _server.updateHelpPassword(helpPassword.value);
   }
 
   Future<void> setUseApiKey(bool enabled) async {
