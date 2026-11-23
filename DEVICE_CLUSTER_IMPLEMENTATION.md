@@ -1,53 +1,56 @@
-# PrivateLM Device Cluster Implementation Plan
+# PrivateLM Device Cluster Implementation
 
 ## Product goals
 
-PrivateLM will share one configuration and device-cluster model across Windows and Android. The Windows application is the coordinator/host; compatible Windows and Android devices can join as members. The Android app remains useful as a normal chat client even when it is not contributing compute.
+PrivateLM shares one configuration and device-cluster model across Windows and Android. The Windows application is a coordinator/host; compatible Windows and Android devices can join as members. Android remains useful as a normal chat client when it is not contributing compute.
 
 ## Execution modes
 
-1. **Performance** — run inference on one selected device. Prefer its best supported local accelerator and avoid remote-device communication overhead.
-2. **Performance Group** — distribute a model/workload across selected compatible devices. Each device retains its own RAM and VRAM; the coordinator schedules supported partitions and accounts for network transfer and synchronization costs.
-3. **Extreme Force** — attempt to involve all selected compatible accelerators and use a user-configured higher per-device memory budget. Always enforce OS headroom, thermal/power limits, backend constraints, and device-owner safety limits. Never promise 100% utilization or reserve all system RAM.
+1. Performance — run inference on one selected device and avoid remote-device overhead.
+2. Performance Group — use supported local and remote devices. Each device retains its own RAM/VRAM; computation is partitioned by the inference backend.
+3. Extreme Force — ask the backend to offload all model layers across all selected compatible accelerators. Preserve OS headroom and respect thermal, battery and device-owner limits. No promise of 100% utilization.
 
 ## Shared settings
 
-The versioned cluster configuration will cover execution mode, model identity, context length, maximum output tokens, CPU threads, GPU policy, per-device memory budgets, image-generation backend, UI text scale, and startup behavior. The master publishes cluster-wide settings; each member validates them against local capabilities and safety limits before acknowledging application. Unsupported settings are reported to the master instead of being silently accepted.
+The versioned schema includes execution mode, model label, context window, output-token limit, temperature, CPU threads, GPU policy and selected IDs, RAM budget, image backend, startup behavior and UI text scale. Members validate settings against local capabilities and acknowledge the applied revision or reject it with a reason.
 
-## Pairing and security
+## Security
 
-- Pair devices using a short-lived QR pairing token; do not embed a permanent API key in QR contents.
-- Issue a unique revocable credential to each paired device.
-- Keep discovery and compute endpoints on trusted networks; require authenticated requests.
-- Do not expose unauthenticated RPC endpoints to a LAN or the public internet.
-- Use TLS or a trusted VPN for connections beyond a protected local network.
+- Pair through a short-lived, one-use code; do not put permanent credentials in QR content.
+- Issue unique revocable device credentials and persist only credential hashes.
+- Pin the self-signed TLS certificate on members before transmitting credentials.
+- Keep raw inference RPC on a trusted isolated LAN/VPN only. The upstream llama.cpp RPC transport is experimental and insecure; the control plane does not make it safe.
+- The inference HTTP API is LAN-only and should not be port-forwarded.
 
 ## Existing implementation to preserve
 
-- Windows branch currently provides a Python/Tkinter launcher for llama.cpp `llama-server` with an OpenAI-compatible API.
-- Android already has a `ClusterService` and native `LlamaCluster` integration for Android/iOS worker discovery, QR/manual pairing, worker status and model-split planning. This must be audited and extended rather than replaced.
-- Android already supports connecting to an OpenAI-compatible provider, which can remain the chat transport to a Windows host.
+- Windows previously had a Python/Tkinter launcher for llama.cpp llama-server.
+- Android already has ClusterService, ClusterView and native LlamaCluster RPC worker integration. Preserve and audit it rather than replacing it.
+- Android has an OpenAI-compatible custom-provider path to use the Windows inference HTTP endpoint.
 
-## Distributed inference reality
+## Implemented in feature/device-cluster-foundation
 
-VRAM is not physically pooled or transferred between devices. Distributed inference must use a backend that supports remote execution/partitioning. Local multi-GPU llama.cpp options and remote RPC are different mechanisms and have different compatibility/performance characteristics. Android GPU participation requires a compatible native compute backend; pairing a phone as a chat client does not make its GPU available automatically.
+- Windows hardware inventory for CPU, system RAM and installed GPU adapters; unknown VRAM is reported as unknown rather than guessed.
+- Shared validated settings schema and safety bounds (RAM budget 10–70%, leaving at least 30% OS headroom; context/output-token validation).
+- TLS 1.2+ HTTPS control service with a self-signed ECDSA certificate and SHA-256 fingerprint for client pinning.
+- One-time 8-digit pairing codes (five-minute lifetime), rate-limited failed attempts, one credential per node, hashed credential persistence, heartbeat, versioned config delivery, acknowledgement state and revocation.
+- Windows dashboard with performance/performance-group/extreme-force profiles, context/output/temperature/CPU/GPU-layer settings, device-ID discovery and optional RPC endpoint wiring.
+- Windows workflow compiles, runs unit tests and builds a one-file EXE artifact.
 
-## Delivery milestones
+## Still required before claiming the complete cross-platform product
 
-1. Audit current Android cluster/native backend and Windows launcher; document supported platforms and gaps.
-2. Define shared, versioned configuration schema and validation.
-3. Implement secure pairing, node identity, capability reporting and master/member settings synchronization.
-4. Implement Windows animated onboarding/dashboard and hardware detection.
-5. Integrate the Android Device Cluster tab and shared settings while preserving existing cluster behavior.
-6. Add/validate actual distributed inference backend paths (local multi-GPU and remote nodes), with benchmarks and fallback behavior.
-7. Add image-generation device selection only for supported backends.
-8. Build and test Windows/Android artifacts and report exactly which modes are operational.
+- Android HTTPS client: certificate pinning, secure credential storage, QR/manual pairing, heartbeats, config validation and acknowledgements.
+- Android Device Cluster UI rename and integration of shared settings while preserving the existing phone RPC cluster.
+- Build and interoperability test the same RPC protocol/backend on Windows and Android; matching versions and backend support are required.
+- Real device-by-device memory budgeting, thermal/battery guardrails and benchmarks. Current RAM budget is a policy field, not an enforced hard quota.
+- Image-generation worker routing and backend support.
+- Test the EXE on physical Windows hardware and verify firewall/network behavior.
 
 ## Acceptance criteria
 
-- The UI never advertises a device/GPU as participating unless the backend confirms it.
-- Performance mode does not schedule remote nodes.
-- Performance Group can use more than three registered nodes when the selected backend and network support it.
-- Extreme Force applies configurable per-node memory budgets but preserves OS headroom and device safety limits.
-- Master changes are versioned, acknowledged, and rejected with a clear reason when a member cannot apply them.
-- Tests cover offline nodes, incompatible GPUs, insufficient memory, pairing revocation, stale configuration and fallback to a single device.
+- UI never claims a device/GPU participates unless the inference backend confirms it.
+- Performance never attaches remote nodes.
+- Group mode accepts more than three RPC endpoints if the backend and network support them.
+- Extreme Force requests all compatible model layers but does not exceed OS/device budgets.
+- Settings are revisioned and members report unsupported values rather than silently accepting them.
+- Offline or revoked nodes cannot silently remain active participants.
