@@ -52,8 +52,6 @@ class _ClusterViewState extends State<ClusterView> {
           padding: kPagePadding,
           children: [
             const SizedBox(height: 8),
-            if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
-              const WindowsCoordinatorPanel(),
             AppSegmented<ClusterRole>(
               items: [
                 (ClusterRole.off, 'Off'),
@@ -199,6 +197,10 @@ class _ClusterViewState extends State<ClusterView> {
   List<Widget> _masterSection(BuildContext context) {
     final t = AppTokens.of(context);
     return [
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) ...[
+        const WindowsCoordinatorPanel(),
+        const SizedBox(height: 16),
+      ],
       if (cluster.split.length > 1) ...[
         _SplitCard(shares: cluster.split),
         const SizedBox(height: 16),
