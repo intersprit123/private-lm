@@ -40,6 +40,13 @@ jobs:
           flutter-version: '3.38.9'
           cache: true
 
+      - name: Fetch Stable Diffusion native source
+        run: |
+          mkdir -p local_plugins/sd_flutter_android/android/src/main/cpp
+          if [ ! -d local_plugins/sd_flutter_android/android/src/main/cpp/stable-diffusion.cpp/.git ]; then
+            git clone --depth 1 https://github.com/leejet/stable-diffusion.cpp.git local_plugins/sd_flutter_android/android/src/main/cpp/stable-diffusion.cpp
+          fi
+
       - name: Install Flutter dependencies
         run: flutter pub get
 
