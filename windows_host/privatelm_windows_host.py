@@ -302,7 +302,7 @@ class HostApp:
             ram = f"{hw.ram_available_mb or '?'} MB available / {hw.ram_total_mb or '?'} MB total RAM"
             gpus = "; ".join(f"{g.name} ({g.memory_total_mb or 'VRAM unknown'} MB)" for g in hw.gpus) or "No GPU inventory available"
             self.hw = hw
-            summary = f"{hw.platform} · {hw.cpu_name} · {hw.cpu_logical_threads} logical threads · {ram}\n{gpus}"
+            summary = f"{hw.platform} · {hw.cpu_name} · {hw.cpu_physical_cores or 'unknown'} physical cores / {hw.cpu_logical_threads} logical threads · {ram}\n{gpus}"
             self.hardware_text.set(summary)
             if hasattr(self, "hardware_summary"):
                 self.hardware_summary.set(summary)

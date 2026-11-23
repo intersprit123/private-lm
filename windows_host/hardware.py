@@ -28,6 +28,7 @@ class HardwareInfo:
     ram_available_mb: int | None
     gpus: list[GPUInfo]
     notes: list[str]
+    cpu_physical_cores: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -113,6 +114,18 @@ def _detect_gpus() -> list[GPUInfo]:
 def detect_hardware() -> HardwareInfo:
     total, available = _windows_memory()
     cpu = platform.processor() or platform.machine() or "Unknown CPU"
+    physical_cores = None
+    if os.name == "nt":
+        ps = shutil.which("powershell") or shutil.which("pwsh")
+        if ps:
+            cpu_script = "Get-CimInstance Win32_Processor | Select-Object -First 1 Name,NumberOfCores | ConvertTo-Json -Compress"
+            try:
+                cpu_data = json.loads(_run([ps, "-NoProfile", "-NonInteractive", "-Command", cpu_script]))
+                if isinstance(cpu_data, dict):
+                    cpu = str(cpu_data.get("Name") or cpu)
+                    physical_cores = int(cpu_data.get("NumberOfCores") or 0) or None
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
     notes = ["GPU execution is available only when the selected llama.cpp build includes a compatible backend."]
     gpus = _detect_gpus()
     if not gpus:
@@ -121,4 +134,4 @@ def detect_hardware() -> HardwareInfo:
         notes.append("Some adapter VRAM values are unavailable or unreliable; no memory has been assumed.")
     return HardwareInfo(platform=f"{platform.system()} {platform.release()} {platform.machine()}",
         cpu_name=cpu, cpu_logical_threads=os.cpu_count() or 1, ram_total_mb=total,
-        ram_available_mb=available, gpus=gpus, notes=notes)
+        ram_available_mb=available, gpus=gpus, notes=notes, cpu_physical_cores=physical_cores)
