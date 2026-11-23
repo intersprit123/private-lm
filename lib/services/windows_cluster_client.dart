@@ -116,7 +116,12 @@ class WindowsClusterClient {
         if (credential == null) throw StateError('Missing paired-device credential.');
         request.headers.set(HttpHeaders.authorizationHeader, 'Bearer ' + credential);
       }
-      request.add(utf8.encode(jsonEncode(body)));
+      // The Windows BaseHTTPRequestHandler reads Content-Length and does not
+      // support chunked request bodies. Set the exact UTF-8 byte length so the
+      // coordinator can parse the JSON instead of seeing an empty body.
+      final bodyBytes = utf8.encode(jsonEncode(body));
+      request.contentLength = bodyBytes.length;
+      request.add(bodyBytes);
       final response = await request.close().timeout(const Duration(seconds: 12));
       final payload = await utf8.decoder.bind(response).join();
       Map<String, dynamic> decoded = {};
