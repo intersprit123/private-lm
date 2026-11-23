@@ -713,8 +713,14 @@ class HostApp:
             self.nodes.delete(0, "end")
             for node in self.registry.snapshot():
                 status = "online" if node["online"] else "offline"
+                worker = "worker ready" if node.get("worker_ready") else "worker unavailable"
+                eligible = "compute eligible" if node.get("compute_eligible") else "not compute eligible"
+                memory = node.get("memory", {})
+                safe_mb = memory.get("safe_worker_budget_mb", 0)
+                held_mb = memory.get("worker_held_mb", 0)
+                mem_text = f"{safe_mb} MB safe / {held_mb} MB held" if safe_mb or held_mb else "memory unknown"
                 ack = f"rev {node['config_ack_revision']} {'OK' if node['config_ack_ok'] else 'pending/rejected'}"
-                self.nodes.insert("end", f"{node['id']}  |  {node['name']} ({node['platform']})  |  {status}  |  {ack}")
+                self.nodes.insert("end", f"{node['id']}  |  {node['name']} ({node['platform']})  |  {status}  |  {worker}  |  {eligible}  |  {mem_text}  |  {ack}")
         self.root.after(2500, self._refresh_nodes)
 
     def _apply_remote_compute_config(self, config: dict) -> None:
