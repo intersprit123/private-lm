@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -52,7 +53,7 @@ class _ClusterViewState extends State<ClusterView> {
           padding: kPagePadding,
           children: [
             const SizedBox(height: 8),
-            const WindowsCoordinatorPanel(),
+            if (Platform.isAndroid) const WindowsCoordinatorPanel(),
             AppSegmented<ClusterRole>(
               items: [
                 (ClusterRole.off, 'Off'),
