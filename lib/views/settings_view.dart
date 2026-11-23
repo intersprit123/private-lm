@@ -139,8 +139,9 @@ class SettingsView extends GetView<SettingsController> {
                 reactive: false,
               ),
               AppRow(
-                icon: Icons.article_outlined,
-                title: 'Logs',
+                icon: Icons.cable_rounded,
+                title: 'Connection console',
+                subtitle: 'Windows connection tests and app diagnostics',
                 chevron: true,
                 onTap: () => Get.to(() => const LogView()),
               ),
