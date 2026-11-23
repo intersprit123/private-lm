@@ -82,6 +82,18 @@ class ClusterRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not assigned"):
             self.registry.update_task_status(second["credential"], task["id"], "completed", 100)
 
+    def test_failed_task_is_reassigned_to_another_worker(self):
+        first = self.pair_one()
+        self.make_eligible(first)
+        task = self.registry.create_task("worker_probe", {}, first["node_id"])
+        second_code, _ = self.registry.issue_pairing_code()
+        second = self.registry.pair("192.168.1.21", second_code, {"name": "Backup phone"})
+        self.make_eligible(second)
+        updated = self.registry.update_task_status(first["credential"], task["id"], "failed", 25, error="worker error")
+        self.assertEqual(updated["state"], "assigned")
+        self.assertEqual(updated["node_id"], second["node_id"])
+        self.assertEqual(updated["attempts"], 2)
+
     def test_expired_task_is_reassigned(self):
         first = self.pair_one()
         self.make_eligible(first)

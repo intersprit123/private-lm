@@ -277,6 +277,15 @@ class ClusterRegistry:
             task["state"] = status; task["progress"] = 100 if status == "completed" else progress
             task["result"] = result or {}; task["error"] = str(error)[:500]; task["updated_at"] = int(time.time())
             task["lease_expires_at"] = 0 if status in {"completed", "failed"} else int(time.time()) + TASK_LEASE_SECONDS
+            if status == "failed":
+                attempts = int(task.get("attempts", 1))
+                candidates = self._eligible_nodes({node["id"]})
+                if candidates and attempts < int(task.get("max_attempts", TASK_MAX_ATTEMPTS)):
+                    next_node = min(candidates, key=lambda n: sum(1 for other in self.tasks.values() if other.get("node_id") == n["id"] and other.get("state") in {"assigned", "running"}))
+                    task["node_id"] = next_node["id"]; task["attempts"] = attempts + 1
+                    task["state"] = "assigned"; task["progress"] = 0
+                    task["lease_expires_at"] = int(time.time()) + TASK_LEASE_SECONDS
+                    task["error"] = "Retrying on another worker after: " + str(error)[:400]
             self._save(); return json.loads(json.dumps(task))
 
     def _reconcile_tasks(self) -> None:
