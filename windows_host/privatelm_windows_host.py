@@ -286,7 +286,7 @@ class HostApp:
     def _security_page(self):
         self._section(self.page_area, "Privacy & security", "Keep inference and device pairing private.")
         self._field(self.page_area, "Inference API key", self.key, "Separate from Device Cluster pairing credentials.")
-        ttk.Button(self.page_area, text="Generate new API key", command=self.rotate_key).pack(anchor="w", pady=8)
+        ttk.Button(self.page_area, text="Generate new API key", command=self.new_key).pack(anchor="w", pady=8)
         ttk.Label(self.page_area, text="The inference API key does not encrypt network traffic. Use a trusted private network or VPN and never port-forward this service.",
                   style="Muted.TLabel", wraplength=850).pack(anchor="w", pady=10)
 
@@ -472,6 +472,14 @@ class HostApp:
             self.hardware_text.set(summary)
             if hasattr(self, "hardware_summary"):
                 self.hardware_summary.set(summary)
+            if hasattr(self, "metric_values"):
+                gpu_text = ", ".join((g.name.split("(")[0].strip() + " · " +
+                    (f"{g.memory_total_mb} MB" if g.memory_total_mb is not None else "VRAM unknown")) for g in hw.gpus) or "No GPU detected"
+                values = {"CPU": hw.cpu_name, "RAM": f"{(hw.ram_available_mb or 0)//1024:.1f} / {(hw.ram_total_mb or 0)//1024:.1f} GB", "GPU / VRAM": gpu_text, "Inference": self.status.get()}
+                for card, title in self.metric_values:
+                    children = card.winfo_children()
+                    if title in values and len(children) > 1:
+                        children[1].configure(text=values[title])
             self.threads.set(self.threads.get() if int(self.threads.get() or 0) > 0 else str(hw.cpu_logical_threads))
             self.log("Hardware inventory complete. Backend compatibility is checked separately at launch.")
         except Exception as exc:
