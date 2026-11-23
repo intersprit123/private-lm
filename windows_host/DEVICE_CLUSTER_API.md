@@ -54,3 +54,10 @@ schema_version, revision, execution_mode, model_label, context_size, max_output_
 Execution modes are performance, performance_group and extreme_force. The RAM policy range is 10–70%, leaving at least 30% for the OS. Members must independently validate incoming settings against local thermal, battery, memory and backend constraints before applying them; unsupported configurations must be acknowledged as rejected with a reason.
 
 This is a control plane, not an inference transport. It does not forward tensors, model files or RPC commands. Remote inference is a separate backend capability and must not be inferred from successful pairing.
+
+
+## Worker health and memory accounting (protocol v1)
+
+Members may report `worker_state` (`starting`, `ready`, `busy`, `stopped`, or `error`), `native_rpc_version`, `worker_throttled`, `worker_memory_available_mb`, and `worker_memory_held_mb`. The coordinator exposes `worker_ready`, `compute_eligible`, and a per-device `memory` summary in its local device snapshot. Eligibility requires a fresh heartbeat, a ready worker, rpc7, and no reported Android throttling.
+
+Memory values are per-device estimates, not pooled physical RAM. The safe worker budget is reported separately from total free memory, and the coordinator clamps untrusted numeric reports. Eligibility is only a scheduling prerequisite; it does not prove tensor execution or Windows↔Android RPC interoperability.

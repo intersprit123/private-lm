@@ -139,7 +139,7 @@ class ClusterRegistry:
                 clean["capabilities"] = {"warning": "capability report was too large"}
             self.nodes[node_id] = clean
             self._save()
-            return {"node_id": node_id, "credential": token, "config": self.config.to_dict()}
+            return {"node_id": node_id, "credential": token, "config": self.config.to_dict(), "control_protocol_version": 1}
 
     def _auth(self, token: str) -> dict[str, Any]:
         hashed = hashlib.sha256(token.encode()).hexdigest()
@@ -157,8 +157,20 @@ class ClusterRegistry:
                 if len(json.dumps(caps)) <= 12_000:
                     node["capabilities"] = caps
             node["status"] = str(payload.get("status", "online"))[:32]
+            caps = node.get("capabilities", {})
+            for key in ("ram_available_mb", "worker_memory_available_mb", "worker_memory_held_mb"):
+                value = caps.get(key)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    caps[key] = max(0, min(int(value), 1_048_576))
+                else:
+                    caps.pop(key, None)
+            worker_state = str(caps.get("worker_state", "stopped"))
+            if worker_state not in {"starting", "ready", "busy", "stopped", "error"}:
+                worker_state = "unknown"
+            caps["worker_state"] = worker_state
+            node["capabilities"] = caps
             self._save()
-            return {"node_id": node["id"], "config": self.config.to_dict()}
+            return {"node_id": node["id"], "config": self.config.to_dict(), "control_protocol_version": 1}
 
     def acknowledge(self, token: str, revision: int, accepted: bool, reason: str = "") -> None:
         with self.lock:
@@ -209,6 +221,14 @@ class ClusterRegistry:
             for node in self.nodes.values():
                 item = {k: v for k, v in node.items() if k != "credential_hash"}
                 item["online"] = int(time.time()) - int(item.get("last_seen", 0)) <= 15
+                caps = item.get("capabilities", {})
+                state = caps.get("worker_state", "unknown")
+                item["worker_ready"] = bool(item["online"] and state == "ready")
+                item["compute_eligible"] = bool(item["worker_ready"] and caps.get("native_rpc_version") == "rpc7" and caps.get("worker_throttled") is not True)
+                free_mb = caps.get("ram_available_mb", 0)
+                safe_mb = caps.get("worker_memory_available_mb", 0)
+                held_mb = caps.get("worker_memory_held_mb", 0)
+                item["memory"] = {"reported_free_mb": free_mb if isinstance(free_mb, int) else 0, "safe_worker_budget_mb": safe_mb if isinstance(safe_mb, int) else 0, "worker_held_mb": held_mb if isinstance(held_mb, int) else 0, "is_estimate": True}
                 result.append(item)
             return result
 
