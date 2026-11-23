@@ -115,7 +115,7 @@ class SettingsView extends GetView<SettingsController> {
               if (Get.isRegistered<ClusterService>())
                 AppRow(
                   icon: Icons.hub_outlined,
-                  title: 'Phone cluster',
+                  title: 'Device Cluster',
                   trailing: Text(
                       switch (Get.find<ClusterService>().role) {
                         ClusterRole.master => 'Master',
