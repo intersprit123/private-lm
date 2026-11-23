@@ -210,6 +210,10 @@ class _WindowsCoordinatorPanelState extends State<WindowsCoordinatorPanel> {
     try {
       final config = await _client.heartbeat(await _identity());
       await _applyConfig(config);
+      final worker = Get.find<ClusterService>().worker.value;
+      if (worker.running && worker.peer == null && !worker.throttled) {
+        await _pollWorkerTasks();
+      }
       if (mounted && _lastRevision == 0) {
         setState(() => _status = 'Connected · secure settings sync active');
       }
@@ -217,6 +221,59 @@ class _WindowsCoordinatorPanelState extends State<WindowsCoordinatorPanel> {
       if (mounted) setState(() => _status = 'Coordinator unavailable: ' + error.toString());
     } finally {
       _polling = false;
+    }
+  }
+
+  /// Executes only allowlisted diagnostics; never runs shell commands or inference.
+  Future<void> _pollWorkerTasks() async {
+    try {
+      final tasks = await _client.pollTasks();
+      for (final task in tasks) {
+        await _handleWorkerTask(task);
+      }
+    } catch (error) {
+      if (mounted) setState(() => _details = 'Worker task sync issue: $error');
+    }
+  }
+
+  Future<void> _handleWorkerTask(Map<String, dynamic> task) async {
+    final id = task['id']?.toString() ?? '';
+    final type = task['type']?.toString() ?? '';
+    if (id.isEmpty) return;
+    try {
+      await _client.updateTaskStatus(taskId: id, status: 'running', progress: 10);
+      final worker = Get.find<ClusterService>().worker.value;
+      final freeRam = await LlamaCluster.localFreeRamMb();
+      Map<String, dynamic> result;
+      if (type == 'worker_probe') {
+        result = {
+          'worker_running': worker.running, 'worker_state': worker.state,
+          'connected_peer': worker.peer, 'throttled': worker.throttled,
+          'rpc_version': 'rpc7', 'free_ram_mb': freeRam,
+        };
+      } else if (type == 'memory_report') {
+        result = {
+          'reported_free_ram_mb': freeRam,
+          'safe_worker_budget_mb': worker.running ? (freeRam * 0.70).floor() : 0,
+          'worker_memory_held_mb': worker.heldMb,
+          'worker_running': worker.running, 'memory_is_estimate': true,
+          'memory_is_shared_with_windows': false,
+        };
+      } else {
+        await _client.updateTaskStatus(
+          taskId: id, status: 'failed', progress: 0,
+          error: 'Unsupported Android task type. Benchmark execution is not enabled.',
+        );
+        return;
+      }
+      await _client.updateTaskStatus(taskId: id, status: 'completed', progress: 100, result: result);
+      if (mounted) setState(() => _details = 'Completed Windows worker diagnostic: $type');
+    } catch (error) {
+      try {
+        await _client.updateTaskStatus(taskId: id, status: 'failed', progress: 0, error: error.toString());
+      } catch (_) {
+        // If the coordinator is offline, its task lease will expire and retry.
+      }
     }
   }
 
