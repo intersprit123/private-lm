@@ -58,6 +58,12 @@ class OpenAiServerService {
     unawaited(_serve(_server!));
   }
 
+  /// Updates the health endpoint lookup password without restarting.
+  void updateHelpPassword(String password) {
+    final normalized = password.trim();
+    if (normalized.isNotEmpty) _helpPassword = normalized;
+  }
+
   /// Applies a new API key to the running server without a restart.
   void updateApiKey(String? apiKey) {
     final key = apiKey?.trim();
