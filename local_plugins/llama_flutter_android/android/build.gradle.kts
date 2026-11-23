@@ -77,6 +77,13 @@ android {
                     "-DGGML_CPU_AARCH64=ON",
                     "-DGGML_OPENMP=OFF"
                 )
+                // GitHub Actions runners only have the older NDK glslc, which
+                // cannot compile llama.cpp cooperative-matrix Vulkan shaders.
+                // Keep Vulkan enabled for normal local/device builds; CI APKs
+                // use the CPU backend so the installable test build is reliable.
+                if (System.getenv("CI") == "true") {
+                    arguments += "-DLLAMA_ANDROID_VULKAN=OFF"
+                }
             }
         }
     }
