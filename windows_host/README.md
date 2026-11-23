@@ -1,47 +1,47 @@
 # PrivateLM Windows Host
 
-A Windows desktop launcher for `llama.cpp`'s `llama-server.exe`. It runs a selected GGUF model on the Windows PC and exposes an authenticated OpenAI-compatible API over the private LAN. The existing PrivateLM Android app can connect through its **Custom** provider.
+The Windows companion provides a local llama-server launcher, hardware inventory, three execution profiles, optional llama.cpp RPC worker routing, and a TLS-protected Device Cluster control plane.
 
-## Requirements
+## Build
 
-- Windows 10/11 x64.
-- A Windows x64 llama.cpp build containing `llama-server.exe` (start with CPU build; try Vulkan only after CPU inference works).
-- A GGUF model file.
-- Python 3.10+ only if you want to build the EXE yourself.
+Requirements: Windows 10/11 x64, Python 3.10+, a compatible llama-server.exe, and a local GGUF model.
 
-## Build the EXE on Windows
+    Set-ExecutionPolicy -Scope Process Bypass
+    .\Build-Windows-EXE.ps1
 
-Open PowerShell in this folder and run:
+The EXE is written to windows_host\dist\PrivateLM-Windows-Host.exe.
 
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\Build-Windows-EXE.ps1
-```
+## Inference setup
 
-The output is `dist\PrivateLM-Windows-Host.exe`. It is a self-contained PyInstaller executable; Python is not required on the target PC. A Windows executable must be built on Windows.
+1. Select a compatible llama-server.exe and a GGUF model.
+2. Choose context, output-token limit, temperature, CPU threads and GPU layers.
+3. Use Detect llama.cpp devices to inspect identifiers exposed by that exact llama.cpp build. Single-GPU mode requires exactly one selected identifier.
+4. Start inference. The base URL is http://<PC-LAN-IP>:8080/v1; model alias is local-model (the port is configurable).
+5. In PrivateLM Android, configure a Custom OpenAI-compatible provider with the base URL, API key and model alias.
 
-## Run
+The launcher checks --device, --rpc, and --list-devices support before enabling those options. Unsupported features are not silently advertised as working.
 
-1. Open `PrivateLM-Windows-Host.exe`.
-2. Browse to `llama-server.exe` and select a `.gguf` model.
-3. Start with Port `8080`, Context `2048`, CPU threads `4`, GPU layers `0`.
-4. Click **Start local AI server**.
-5. Allow Windows Firewall access on **Private networks only**.
+## Execution profiles
 
-## Connect PrivateLM Android
+- Performance: no remote RPC nodes are attached. The selected PC handles inference.
+- Performance Group: all entered RPC worker endpoints are passed to llama-server --rpc, but only when the executable advertises RPC support.
+- Extreme Force: asks llama.cpp to offload all model layers (-ngl all) across selected local devices and listed RPC endpoints. Actual use depends on compiled backends and device availability.
 
-Keep both devices on the same Wi-Fi. In PrivateLM, choose its **Custom** OpenAI-compatible provider:
+The RAM budget is a versioned resource policy distributed to members. This release does not impose a hard Windows job-object or VRAM quota on llama.cpp. The validator preserves at least 30% OS headroom; do not interpret the percentage as a measured or guaranteed allocation cap.
 
-- Base URL: `http://<WINDOWS-LAN-IP>:8080/v1`
-- API key: the generated key shown in the Windows Host window
-- Model: `local-model`
+## Device Cluster control plane
 
-The Android custom provider appends `/chat/completions`, so include `/v1` exactly once.
+Start Secure cluster service to create a TLS 1.2+ HTTPS control endpoint on port 8765. The UI issues an 8-digit, single-use pairing code; it expires after five minutes. A paired node receives a unique random credential. Only a SHA-256 hash of the credential is saved locally. Each member sends heartbeats, receives current versioned settings and reports whether it applied or rejected the revision. Devices can be revoked from the local UI.
 
-## Security
+The certificate is self-signed. A client must verify the displayed SHA-256 certificate fingerprint (pinning) before sending a pairing code or credential. See DEVICE_CLUSTER_API.md for the protocol.
 
-The server binds to `0.0.0.0` for LAN access and requires an API key. Use only on a trusted private LAN. Do not port-forward this port to the public internet. The API key does not encrypt traffic; use HTTPS before exposing outside the trusted LAN.
+The Windows API is implemented here. The Android app-side HTTPS client still needs to implement this pinning and heartbeat contract before Android master-controlled settings sync is operational. The existing Android native phone-worker RPC path is not replaced by this API.
 
-## Performance
+## Important limitations
 
-Begin with CPU mode (`-ngl 0`) to establish a stable baseline. A 4B Q4 model may fit in 16 GB system RAM depending on context size and background use. The laptop's 2 GB dedicated VRAM is not enough to assume full 4B offload. Test small nonzero GPU-layer values only after CPU mode is stable. RAM and VRAM are not one unified memory pool.
+- llama.cpp RPC is experimental, fragile and insecure. Use it only on an isolated trusted LAN or VPN. Do not expose RPC ports to the public internet.
+- The inference endpoint is HTTP in this release. Its API key does not encrypt traffic. Use only on a trusted private LAN/VPN; never port-forward it.
+- VRAM is not physically pooled. Remote execution moves model data and computation via a compatible backend; each GPU retains its own memory.
+- Android RPC and Windows llama.cpp binaries must use compatible RPC protocol/backend builds. Successful control-plane pairing does not prove RPC inference will work.
+- Image-generation backend choice is shared as a setting, but this Windows host does not yet launch or coordinate an image-generation engine.
+- Benchmark tokens/second on the actual network. Remote nodes can be slower due to synchronization overhead.
