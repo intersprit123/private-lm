@@ -98,6 +98,18 @@ The `InferenceService` exposes `supportsLocalInference` so the UI can hide local
 
 ---
 
+## Device Cluster
+
+The Android **Device Cluster** screen retains the native Android-to-Android llama.cpp RPC worker feature and adds an optional, TLS-pinned connection to a Windows PrivateLM coordinator. The Windows coordinator can send versioned settings; Android validates and acknowledges each revision. The per-device credential is kept in Android secure storage.
+
+To pair, start **Secure cluster service** in the Windows host, then enter its HTTPS address, one-time code and SHA-256 certificate fingerprint in **Device Cluster → Windows coordinator**.
+
+This pairing is currently a **settings/control connection only**. It does not make an Android GPU available to the Windows inference process. The Android native RPC worker protocol remains separate and cross-platform RPC compatibility has not yet been verified. Unsupported execution policies are reported to the coordinator instead of being silently accepted.
+
+See [Android ↔ Windows Device Cluster setup](DEVICE_CLUSTER_WINDOWS.md) for the current workflow and limitations.
+
+---
+
 ## Supported Platforms
 
 | Platform | Local Inference | Cloud APIs | Notes                           |
