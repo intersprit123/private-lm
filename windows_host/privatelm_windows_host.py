@@ -80,6 +80,8 @@ class HostApp:
         self.fingerprint = tk.StringVar(value="Certificate fingerprint: not generated")
         self.hardware_text = tk.StringVar(value="Detecting hardware…")
         self._build()
+        self.text_scale.trace_add('write', lambda *_: self.apply_text_scale())
+        self.apply_text_scale()
         self.root.after(150, self._drain)
         self.root.after(250, self._detect_hardware)
         self.root.after(2500, self._refresh_nodes)
@@ -105,6 +107,7 @@ class HostApp:
 
     def _build(self) -> None:
         style = ttk.Style(self.root)
+        self.style = style
         style.theme_use("clam")
         style.configure("TFrame", background=BG)
         style.configure("Panel.TFrame", background=PANEL)
@@ -112,6 +115,7 @@ class HostApp:
         style.configure("Muted.TLabel", background=BG, foreground=MUTED)
         style.configure("Title.TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 24, "bold"))
         style.configure("PanelTitle.TLabel", background=PANEL, foreground=TEXT, font=("Segoe UI", 12, "bold"))
+        style.configure("Section.TLabel", background=BG, foreground="#65b7ff", font=("Segoe UI", 13, "bold"))
         style.configure("TEntry", fieldbackground=PANEL2, foreground=TEXT, insertcolor=TEXT, bordercolor="#29415f")
         style.configure("TCombobox", fieldbackground=PANEL2, foreground=TEXT, background=PANEL2)
         style.configure("TButton", background="#1d4774", foreground=TEXT, padding=(12, 7), borderwidth=0)
@@ -193,8 +197,22 @@ class HostApp:
         self.log(f"Detailed inference log: {self.log_path}")
         ttk.Label(outer, text="Network note: the OpenAI-compatible inference endpoint is HTTP. Use only on a trusted private LAN or VPN; never port-forward it to the public internet.", style="Muted.TLabel", wraplength=920).pack(anchor="w", pady=10)
 
+    def apply_text_scale(self) -> None:
+        scale = {"small": 0.88, "medium": 1.0, "large": 1.16}.get(self.text_scale.get(), 1.0)
+        style = getattr(self, "style", ttk.Style(self.root))
+        style.configure("TLabel", font=("Segoe UI", max(8, round(10 * scale))))
+        style.configure("Muted.TLabel", font=("Segoe UI", max(8, round(10 * scale))))
+        style.configure("Title.TLabel", font=("Segoe UI", max(16, round(24 * scale)), "bold"))
+        style.configure("PanelTitle.TLabel", font=("Segoe UI", max(9, round(12 * scale)), "bold"))
+        style.configure("Section.TLabel", font=("Segoe UI", max(10, round(13 * scale)), "bold"))
+        style.configure("TButton", font=("Segoe UI", max(8, round(9 * scale))))
+        style.configure("TEntry", font=("Segoe UI", max(8, round(10 * scale))))
+        style.configure("TCombobox", font=("Segoe UI", max(8, round(10 * scale))))
+        if hasattr(self, "text"):
+            self.text.configure(font=("Consolas", max(8, round(9 * scale))))
+
     def _section(self, parent: ttk.Frame, title: str) -> None:
-        ttk.Label(parent, text=title, font=("Segoe UI", 13, "bold"), foreground="#65b7ff").pack(anchor="w", pady=(10, 6))
+        ttk.Label(parent, text=title, style="Section.TLabel").pack(anchor="w", pady=(10, 6))
 
     def _file_row(self, parent: ttk.Frame, label: str, var: tk.StringVar, command) -> None:
         row = ttk.Frame(parent); row.pack(fill="x", pady=4)
