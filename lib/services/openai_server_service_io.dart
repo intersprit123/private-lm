@@ -16,6 +16,7 @@ class OpenAiServerService {
   HttpServer? _server;
   bool _busy = false;
   String? _apiKey;
+  String _helpPassword = '1234';
   void Function(String)? _onLog;
 
   bool get isRunning => _server != null;
@@ -38,6 +39,7 @@ class OpenAiServerService {
     int port = 8080,
     String? apiKey,
     bool allowNetwork = false,
+    String helpPassword = '1234',
     void Function(String)? onLog,
   }) async {
     if (_server != null) return;
@@ -45,6 +47,7 @@ class OpenAiServerService {
       throw ArgumentError('An API key is required for network access.');
     }
     updateApiKey(apiKey);
+    _helpPassword = helpPassword.trim().isEmpty ? '1234' : helpPassword.trim();
     _onLog = onLog;
     _lastReachableAddress = allowNetwork ? await _reachableIpv4Address() : null;
     _server = await HttpServer.bind(
@@ -92,7 +95,20 @@ class OpenAiServerService {
 
       final path = request.uri.path;
       if (request.method == 'GET' && path == '/health') {
-        await _json(request, {'status': 'ok'});
+        // The API key is disclosed only when the configured local help
+        // password is supplied. Disable intermediary/browser caching.
+        request.response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+        final suppliedPassword = request.uri.queryParameters['help'];
+        if (suppliedPassword != null &&
+            _constantTimeEquals(suppliedPassword, _helpPassword)) {
+          await _json(request, {
+            'status': 'ok',
+            'api_key': _apiKey,
+            'port': _server?.port,
+          });
+        } else {
+          await _json(request, {'status': 'ok'});
+        }
         return;
       }
 
