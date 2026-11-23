@@ -26,12 +26,14 @@ class ServerController extends GetxController {
 
   final useApiKey = false.obs;
   final apiKey = ''.obs;
+  final helpPassword = AppConstants.defaultServerHelpPassword.obs;
 
   /// Off by default: the server only listens on this device. When on, other
   /// devices on the network can reach it and an API key is always required.
   final allowNetwork = false.obs;
 
   late final TextEditingController apiKeyCtrl;
+  late final TextEditingController helpPasswordCtrl;
 
   static const int port = 8080;
 
@@ -41,10 +43,13 @@ class ServerController extends GetxController {
     useApiKey.value =
         _hive.getSetting<bool>(AppConstants.keyServerUseApiKey) ?? false;
     apiKey.value = _hive.getSetting<String>(AppConstants.keyServerApiKey) ?? '';
+    helpPassword.value = _hive.getSetting<String>(AppConstants.keyServerHelpPassword) ??
+        AppConstants.defaultServerHelpPassword;
     allowNetwork.value =
         _hive.getSetting<bool>(AppConstants.keyServerAllowNetwork) ?? false;
 
     apiKeyCtrl = TextEditingController(text: apiKey.value);
+    helpPasswordCtrl = TextEditingController(text: helpPassword.value);
   }
 
   bool get requiresApiKey => allowNetwork.value || useApiKey.value;
@@ -89,6 +94,7 @@ class ServerController extends GetxController {
         port: port,
         apiKey: _effectiveApiKey,
         allowNetwork: allowNetwork.value,
+        helpPassword: helpPassword.value,
         onLog: (message) => serverStatus.value = message,
       );
       localUrl.value = _server.localUrl;
@@ -128,6 +134,8 @@ class ServerController extends GetxController {
     await _hive.setSetting(AppConstants.keyServerUseApiKey, useApiKey.value);
     await _hive.setSetting(AppConstants.keyServerApiKey, apiKey.value.trim());
     await _hive.setSetting(
+        AppConstants.keyServerHelpPassword, helpPassword.value.trim());
+    await _hive.setSetting(
         AppConstants.keyServerAllowNetwork, allowNetwork.value);
     _server.updateApiKey(_effectiveApiKey);
   }
@@ -146,6 +154,18 @@ class ServerController extends GetxController {
       await stopServer();
       await startServer();
     }
+  }
+
+  void onHelpPasswordEdited(String value) {
+    helpPassword.value = value;
+  }
+
+  void setHelpPassword(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) return;
+    helpPassword.value = normalized;
+    helpPasswordCtrl.text = normalized;
+    saveSettings();
   }
 
   void onApiKeyEdited(String value) {
@@ -186,6 +206,7 @@ class ServerController extends GetxController {
   @override
   void onClose() {
     apiKeyCtrl.dispose();
+    helpPasswordCtrl.dispose();
     unawaited(stopServer());
     super.onClose();
   }
