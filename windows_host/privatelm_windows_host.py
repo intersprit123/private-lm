@@ -152,8 +152,11 @@ class HostApp:
         ttk.Label(outer, text="Remote nodes use host:port values, require a llama-server build with GGML_RPC and must remain on an isolated trusted LAN/VPN.", style="Muted.TLabel", wraplength=920).pack(anchor="w", padx=6)
         keyrow = ttk.Frame(outer); keyrow.pack(fill="x", pady=5)
         ttk.Label(keyrow, text="Inference API key", style="Muted.TLabel", width=22).pack(side="left")
-        ttk.Entry(keyrow, textvariable=self.key, show="•").pack(side="left", fill="x", expand=True)
-        ttk.Button(keyrow, text="New key", command=self.new_key).pack(side="left", padx=6)
+        self.key_entry = ttk.Entry(keyrow, textvariable=self.key, show="•")
+        self.key_entry.pack(side="left", fill="x", expand=True)
+        ttk.Button(keyrow, text="Show", command=self.toggle_key).pack(side="left", padx=4)
+        ttk.Button(keyrow, text="Copy", command=self.copy_key).pack(side="left", padx=4)
+        ttk.Button(keyrow, text="New key", command=self.new_key).pack(side="left", padx=4)
         actions = ttk.Frame(outer); actions.pack(fill="x", pady=8)
         ttk.Button(actions, text="Start inference", command=self.start).pack(side="left")
         ttk.Button(actions, text="Stop inference", command=self.stop).pack(side="left", padx=8)
@@ -244,6 +247,19 @@ class HostApp:
             self.log("llama.cpp GPU devices: " + ", ".join(devices))
         except (OSError, subprocess.SubprocessError) as exc:
             messagebox.showerror(APP, f"Device detection failed: {exc}")
+
+    def toggle_key(self) -> None:
+        visible = self.key_entry.cget("show") != ""
+        self.key_entry.configure(show="" if visible else "•")
+
+    def copy_key(self) -> None:
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(self.key.get())
+            self.root.update()
+            self.log("Inference API key copied to clipboard. Treat it like a password.")
+        except tk.TclError as exc:
+            messagebox.showerror(APP, f"Could not copy API key: {exc}")
 
     def new_key(self) -> None:
         self.key.set("plm_" + secrets.token_urlsafe(24))
