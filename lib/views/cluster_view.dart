@@ -1,6 +1,5 @@
 import 'dart:async';
-import 'dart:io' show Platform;
-
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:llama_flutter_android/llama_flutter_android.dart';
@@ -53,7 +52,8 @@ class _ClusterViewState extends State<ClusterView> {
           padding: kPagePadding,
           children: [
             const SizedBox(height: 8),
-            if (Platform.isAndroid) const WindowsCoordinatorPanel(),
+            if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+              const WindowsCoordinatorPanel(),
             AppSegmented<ClusterRole>(
               items: [
                 (ClusterRole.off, 'Off'),
