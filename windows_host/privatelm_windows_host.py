@@ -448,8 +448,10 @@ class HostApp:
         if hasattr(self, "text"):
             self.text.configure(font=("Consolas", max(8, round(9 * scale))))
 
-    def _section(self, parent: ttk.Frame, title: str) -> None:
+    def _section(self, parent: ttk.Frame, title: str, subtitle: str | None = None) -> None:
         ttk.Label(parent, text=title, style="Section.TLabel").pack(anchor="w", pady=(10, 6))
+        if subtitle:
+            ttk.Label(parent, text=subtitle, style="Muted.TLabel").pack(anchor="w", pady=(0, 8))
 
     def _file_row(self, parent: ttk.Frame, label: str, var: tk.StringVar, command) -> None:
         row = ttk.Frame(parent); row.pack(fill="x", pady=4)
