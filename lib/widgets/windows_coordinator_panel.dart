@@ -148,6 +148,8 @@ class _WindowsCoordinatorPanelState extends State<WindowsCoordinatorPanel> {
   Future<Map<String, dynamic>> _identity() async {
     final cluster = Get.find<ClusterService>();
     final freeRam = await LlamaCluster.localFreeRamMb();
+    final worker = cluster.worker.value;
+    final safeWorkerRam = (freeRam * 0.70).floor();
     String name = cluster.deviceName;
     if (name.isEmpty) {
       final info = await DeviceInfoPlugin().androidInfo;
@@ -159,10 +161,16 @@ class _WindowsCoordinatorPanelState extends State<WindowsCoordinatorPanel> {
       'capabilities': {
         'platform': 'Android',
         'ram_available_mb': freeRam,
-        'native_rpc_worker_running': cluster.worker.value.running,
+        'control_protocol_version': 1,
+        'worker_state': worker.running ? (worker.peer == null ? 'ready' : 'busy') : worker.starting ? 'starting' : worker.state == 'error' ? 'error' : 'stopped',
+        'worker_memory_available_mb': worker.running ? safeWorkerRam : 0,
+        'worker_memory_held_mb': worker.heldMb,
+        'worker_throttled': worker.throttled,
+        'worker_peer': worker.peer,
+        'native_rpc_worker_running': worker.running,
         'native_rpc_port': LlamaCluster.defaultPort,
         'native_rpc_version': 'rpc7',
-        'compute_note': 'Native Android phone-cluster RPC is separate from the Windows control pairing.',
+        'compute_note': 'Memory is accounted per device; it is not merged with Windows RAM.',
       },
     };
   }

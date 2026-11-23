@@ -58,7 +58,7 @@ class WindowsClusterClient {
     }
     final response = await _request(
       base: base, pin: pin, token: token, path: '/api/v1/heartbeat',
-      method: 'POST', body: {'status': 'ready', 'capabilities': capabilities},
+      method: 'POST', body: {'status': capabilities['worker_state']?.toString() ?? 'online', 'capabilities': capabilities},
       authenticated: true,
     );
     final config = response['config'];
