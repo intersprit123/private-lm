@@ -110,44 +110,210 @@ class HostApp:
         self.state_path.write_text(json.dumps(values, indent=2), encoding="utf-8")
 
     def _build(self) -> None:
-        style = ttk.Style(self.root)
-        self.style = style
-        style.theme_use("clam")
+        style = ttk.Style(self.root); self.style = style; style.theme_use("clam")
         style.configure("TFrame", background=BG)
         style.configure("Panel.TFrame", background=PANEL)
-        style.configure("TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 11))
+        style.configure("Side.TFrame", background="#0b1628")
+        style.configure("TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 10))
         style.configure("Muted.TLabel", background=BG, foreground=MUTED)
-        style.configure("Title.TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 30, "bold"))
-        style.configure("PanelTitle.TLabel", background=PANEL, foreground=TEXT, font=("Segoe UI", 15, "bold"))
-        style.configure("Section.TLabel", background=BG, foreground="#65b7ff", font=("Segoe UI", 15, "bold"))
+        style.configure("Side.TLabel", background="#0b1628", foreground="#c6d5e8", font=("Segoe UI", 10))
+        style.configure("Title.TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 23, "bold"))
+        style.configure("CardTitle.TLabel", background=PANEL, foreground=TEXT, font=("Segoe UI", 11, "bold"))
+        style.configure("Metric.TLabel", background=PANEL, foreground="#65b7ff", font=("Segoe UI", 23, "bold"))
+        style.configure("Section.TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 16, "bold"))
         style.configure("TEntry", fieldbackground=PANEL2, foreground=TEXT, insertcolor=TEXT)
         style.configure("TCombobox", fieldbackground=PANEL2, foreground=TEXT, background=PANEL2)
-        style.configure("TButton", background="#1d4774", foreground=TEXT, padding=(18, 10), borderwidth=0, font=("Segoe UI", 10, "bold"))
+        style.configure("TButton", background="#1d4774", foreground=TEXT, padding=(12, 8), borderwidth=0, font=("Segoe UI", 9, "bold"))
         style.map("TButton", background=[("active", BLUE), ("disabled", "#26394e")])
         style.configure("TCheckbutton", background=PANEL, foreground=TEXT)
-        style.configure("TSpinbox", fieldbackground=PANEL2, foreground=TEXT)
-        self.root.configure(bg=BG)
-        self.root.geometry("1040x760")
-        self.root.minsize(900, 660)
+        self.root.configure(bg=BG); self.root.geometry("1240x820"); self.root.minsize(1000, 680)
+        outer = ttk.Frame(self.root); outer.pack(fill="both", expand=True)
+        sidebar = ttk.Frame(outer, style="Side.TFrame", width=205, padding=(14, 20))
+        sidebar.pack(side="left", fill="y"); sidebar.pack_propagate(False)
+        brand = ttk.Frame(sidebar, style="Side.TFrame"); brand.pack(fill="x", pady=(0, 24))
+        ttk.Label(brand, text="✦  PrivateLM", background="#0b1628", foreground="#f3f7ff",
+                  font=("Segoe UI", 18, "bold")).pack(anchor="w")
+        ttk.Label(brand, text="LOCAL AI PLATFORM", background="#0b1628", foreground="#6faee8",
+                  font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(4, 0))
+        self.nav_buttons = {}
+        nav_items = [("⌂", "Dashboard"), ("▥", "Performance"), ("▣", "Models"),
+                     ("⌘", "Devices"), ("◇", "Privacy & Security"), ("◷", "Startup"),
+                     ("☰", "Logs"), ("⚙", "Settings")]
+        for glyph, name in nav_items:
+            btn = tk.Button(sidebar, text=f"{glyph}   {name}", anchor="w", relief="flat",
+                bd=0, padx=12, pady=11, bg="#0b1628", fg="#c6d5e8",
+                activebackground="#1b3d65", activeforeground="white",
+                font=("Segoe UI", 10), command=lambda n=name: self._nav_to(n))
+            btn.pack(fill="x", pady=2); self.nav_buttons[name] = btn
+        ttk.Label(sidebar, text="PRIVATE & LOCAL\nDevice services stay on your network",
+                  background="#0b1628", foreground="#7890aa", font=("Segoe UI", 8),
+                  justify="left").pack(side="bottom", anchor="w", pady=8)
+        main = ttk.Frame(outer, padding=(24, 18)); main.pack(side="left", fill="both", expand=True)
+        top = ttk.Frame(main); top.pack(fill="x", pady=(0, 18))
+        self.page_heading = tk.StringVar(value="Dashboard")
+        ttk.Label(top, textvariable=self.page_heading, style="Title.TLabel").pack(side="left")
+        ttk.Label(top, text="●  LOCAL HOST", foreground="#62d6a2").pack(side="right", padx=12)
+        ttk.Button(top, text="Dark mode", command=lambda: None).pack(side="right")
+        self.page_area = ttk.Frame(main); self.page_area.pack(fill="both", expand=True)
+        self._nav_to("Dashboard")
+        self.root.after(300, self._detect_hardware)
 
-        shell = ttk.Frame(self.root, padding=(34, 26))
-        shell.pack(fill="both", expand=True)
-        top = ttk.Frame(shell); top.pack(fill="x")
-        ttk.Label(top, text="PrivateLM", style="Title.TLabel").pack(side="left")
-        ttk.Label(top, text="LOCAL AI  ·  DEVICE CLUSTER", style="Muted.TLabel").pack(side="right", pady=14)
-        self.page_title = tk.StringVar(value="Getting your device ready")
-        ttk.Label(shell, textvariable=self.page_title, style="Section.TLabel").pack(anchor="center", pady=(24, 8))
-        self.progress = tk.StringVar(value="STEP 1 OF 5")
-        ttk.Label(shell, textvariable=self.progress, style="Muted.TLabel").pack(anchor="center", pady=(0, 14))
-        self.page_area = ttk.Frame(shell, style="Panel.TFrame", padding=26)
-        self.page_area.pack(fill="both", expand=True)
-        nav = ttk.Frame(shell); nav.pack(fill="x", pady=(18, 0))
-        self.back_button = ttk.Button(nav, text="Back", command=self._previous_page)
-        self.back_button.pack(side="left")
-        self.next_button = ttk.Button(nav, text="Next", command=self._next_page)
-        self.next_button.pack(side="right")
-        self._show_page(0)
-        self.root.after(250, self._detect_hardware)
+    def _card(self, parent, title, value, detail=""):
+        card = ttk.Frame(parent, style="Panel.TFrame", padding=14)
+        ttk.Label(card, text=title.upper(), style="Muted.TLabel").pack(anchor="w")
+        ttk.Label(card, text=value, background=PANEL, foreground="#65b7ff",
+                  font=("Segoe UI", 21, "bold")).pack(anchor="w", pady=(8, 2))
+        if detail:
+            ttk.Label(card, text=detail, background=PANEL, foreground=MUTED,
+                      wraplength=230).pack(anchor="w")
+        return card
+
+    def _section(self, parent, title, subtitle=None):
+        ttk.Label(parent, text=title, style="Section.TLabel").pack(anchor="w", pady=(8, 3))
+        if subtitle:
+            ttk.Label(parent, text=subtitle, style="Muted.TLabel").pack(anchor="w", pady=(0, 10))
+
+    def _nav_to(self, page: str) -> None:
+        self.page_heading.set(page)
+        for name, btn in self.nav_buttons.items():
+            btn.configure(bg="#1b3d65" if name == page else "#0b1628",
+                          fg="white" if name == page else "#c6d5e8")
+        for child in self.page_area.winfo_children(): child.destroy()
+        if page == "Dashboard":
+            self._dashboard_page()
+        elif page == "Performance":
+            self._performance_page()
+        elif page == "Models":
+            self._models_page()
+        elif page == "Devices":
+            self._devices_page()
+        elif page == "Privacy & Security":
+            self._security_page()
+        elif page == "Startup":
+            self._startup_page()
+        elif page == "Logs":
+            self._logs_page()
+        else:
+            self._settings_page()
+
+    def _dashboard_page(self):
+        self._section(self.page_area, "System overview", "Your local inference host at a glance")
+        summary = ttk.Frame(self.page_area); summary.pack(fill="x", pady=(6, 14))
+        cards = [
+            ("CPU", "Detecting…", "Processor and logical threads"),
+            ("RAM", "Detecting…", "System memory"),
+            ("GPU / VRAM", "Detecting…", "Available graphics devices"),
+            ("Inference", "Stopped", "Local model server status"),
+        ]
+        self.metric_values = []
+        for title, value, detail in cards:
+            card = self._card(summary, title, value, detail); card.pack(side="left", fill="both", expand=True, padx=(0, 10))
+            self.metric_values.append((card, title))
+        self._section(self.page_area, "Quick actions", "Common PrivateLM tasks")
+        actions = ttk.Frame(self.page_area); actions.pack(fill="x", pady=(4, 16))
+        for label, command in [("▶  Start inference", self.start), ("■  Stop inference", self.stop),
+                               ("＋  Load model", lambda: self._nav_to("Models")),
+                               ("⚙  Auto configure", self._auto_configure),
+                               ("▦  Pair device", lambda: self._nav_to("Devices"))]:
+            ttk.Button(actions, text=label, command=command).pack(side="left", padx=(0, 8))
+        lower = ttk.Frame(self.page_area); lower.pack(fill="both", expand=True)
+        left = ttk.Frame(lower, style="Panel.TFrame", padding=16); left.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        right = ttk.Frame(lower, style="Panel.TFrame", padding=16); right.pack(side="left", fill="both", expand=True)
+        ttk.Label(left, text="HOST STATUS", style="CardTitle.TLabel").pack(anchor="w")
+        ttk.Label(left, textvariable=self.status, background=PANEL, foreground="#65b7ff",
+                  font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=12)
+        ttk.Label(left, text="Model: " + (Path(self.model.get()).name if self.model.get() else "No model selected"),
+                  background=PANEL, foreground=MUTED).pack(anchor="w")
+        ttk.Label(right, text="DEVICE CLUSTER", style="CardTitle.TLabel").pack(anchor="w")
+        ttk.Label(right, textvariable=self.cluster_status, background=PANEL, foreground=MUTED).pack(anchor="w", pady=12)
+        ttk.Button(right, text="Open device management", command=lambda: self._nav_to("Devices")).pack(anchor="w")
+
+    def _performance_page(self):
+        self._section(self.page_area, "Hardware specifications", "Detected hardware. Unknown values are shown honestly rather than guessed.")
+        hw = self.hw
+        if not hw:
+            ttk.Label(self.page_area, text="Scanning hardware…", style="Muted.TLabel").pack(anchor="w", pady=20); return
+        self._spec_row(self.page_area, "Operating system", hw.platform)
+        self._spec_row(self.page_area, "Processor", hw.cpu_name)
+        self._spec_row(self.page_area, "Physical cores", str(hw.cpu_physical_cores) if hw.cpu_physical_cores else "Not reported by system")
+        self._spec_row(self.page_area, "Logical threads", str(hw.cpu_logical_threads))
+        self._spec_row(self.page_area, "Installed RAM", f"{hw.ram_total_mb:,} MB" if hw.ram_total_mb else "Unknown")
+        self._spec_row(self.page_area, "Available RAM", f"{hw.ram_available_mb:,} MB" if hw.ram_available_mb else "Unknown")
+        self._section(self.page_area, "Graphics processors")
+        if not hw.gpus:
+            ttk.Label(self.page_area, text="No graphics adapters reported.", style="Muted.TLabel").pack(anchor="w")
+        for gpu in hw.gpus:
+            panel = ttk.Frame(self.page_area, style="Panel.TFrame", padding=12); panel.pack(fill="x", pady=4)
+            ttk.Label(panel, text=gpu.name, style="CardTitle.TLabel").pack(anchor="w")
+            mem = f"{gpu.memory_total_mb:,} MB reported" if gpu.memory_total_mb is not None else "VRAM unknown / not reliably reported"
+            ttk.Label(panel, text=f"{gpu.vendor} · {gpu.id} · {mem} · {gpu.backend_hint}",
+                      background=PANEL, foreground=MUTED, wraplength=850).pack(anchor="w", pady=4)
+        for note in hw.notes:
+            ttk.Label(self.page_area, text="• " + note, style="Muted.TLabel", wraplength=900).pack(anchor="w", pady=3)
+
+    def _spec_row(self, parent, label, value):
+        row = ttk.Frame(parent, style="Panel.TFrame", padding=(12, 9)); row.pack(fill="x", pady=3)
+        ttk.Label(row, text=label, background=PANEL, foreground=MUTED, width=22).pack(side="left")
+        ttk.Label(row, text=value, background=PANEL, foreground=TEXT).pack(side="left")
+
+    def _models_page(self):
+        self._section(self.page_area, "Model & inference engine", "Choose the local runtime and model used by PrivateLM.")
+        self._file_row(self.page_area, "llama-server.exe", self.server, self.pick_server)
+        self._file_row(self.page_area, "GGUF model", self.model, self.pick_model)
+        self._section(self.page_area, "Generation settings")
+        for label, var in [("API port", self.port), ("Context length", self.ctx), ("Maximum output tokens", self.max_tokens),
+                           ("Temperature", self.temperature), ("CPU threads", self.threads), ("GPU layers", self.ngl)]:
+            self._field(self.page_area, label, var)
+        ttk.Button(self.page_area, text="Detect llama.cpp devices", command=self.detect_llama_devices).pack(anchor="w", pady=10)
+        ttk.Button(self.page_area, text="Save configuration", command=self._save_settings).pack(anchor="w")
+
+    def _devices_page(self):
+        self._section(self.page_area, "Device Cluster", "Pair Android devices and manage trusted workers on your private network.")
+        ttk.Label(self.page_area, textvariable=self.cluster_status).pack(anchor="w", pady=4)
+        row = ttk.Frame(self.page_area); row.pack(fill="x", pady=8)
+        ttk.Button(row, text="Start secure cluster service", command=self.start_control).pack(side="left")
+        ttk.Button(row, text="Generate pairing QR", command=self.new_pair_code).pack(side="left", padx=8)
+        ttk.Button(row, text="Refresh pairing code", command=self.new_pair_code).pack(side="left")
+        ttk.Label(self.page_area, textvariable=self.pair_code, foreground="#65b7ff").pack(anchor="w", pady=6)
+        ttk.Label(self.page_area, textvariable=self.fingerprint, style="Muted.TLabel", wraplength=850).pack(anchor="w", pady=4)
+        self.qr_label = ttk.Label(self.page_area); self.qr_label.pack(anchor="center", pady=10)
+        self.nodes = tk.Listbox(self.page_area, height=8, bg=PANEL2, fg=TEXT, selectbackground=BLUE, relief="flat")
+        self.nodes.pack(fill="both", expand=True, pady=8)
+        ttk.Button(self.page_area, text="Revoke selected device", command=self.revoke_selected).pack(anchor="e")
+        ttk.Label(self.page_area, text="Pairing codes expire after five minutes and can only be used once. Use a trusted LAN or VPN; do not expose the host to the public internet.",
+                  style="Muted.TLabel", wraplength=900).pack(anchor="w", pady=8)
+
+    def _security_page(self):
+        self._section(self.page_area, "Privacy & security", "Keep inference and device pairing private.")
+        self._field(self.page_area, "Inference API key", self.key, "Separate from Device Cluster pairing credentials.")
+        ttk.Button(self.page_area, text="Generate new API key", command=self.rotate_key).pack(anchor="w", pady=8)
+        ttk.Label(self.page_area, text="The inference API key does not encrypt network traffic. Use a trusted private network or VPN and never port-forward this service.",
+                  style="Muted.TLabel", wraplength=850).pack(anchor="w", pady=10)
+
+    def _startup_page(self):
+        self._section(self.page_area, "Startup preferences")
+        for label, value in [("Remember my settings", "remember"), ("Ask me on every startup", "ask")]:
+            ttk.Radiobutton(self.page_area, text=label, value=value, variable=self.startup).pack(anchor="w", pady=8)
+        self._field(self.page_area, "RAM budget (%)", self.ram_budget)
+        ttk.Button(self.page_area, text="Save preferences", command=self._save_settings).pack(anchor="w", pady=12)
+
+    def _logs_page(self):
+        self._section(self.page_area, "Activity & inference logs")
+        self.text = tk.Text(self.page_area, height=24, wrap="word", bg="#050c16", fg="#b9d7f5",
+                            insertbackground=TEXT, relief="flat", font=("Consolas", 9))
+        self.text.pack(fill="both", expand=True)
+        self.log("PrivateLM dashboard ready.")
+        self.log(f"Detailed inference log: {self.log_path}")
+
+    def _settings_page(self):
+        self._section(self.page_area, "Advanced settings", "Configuration options are separated from the main dashboard.")
+        self._field(self.page_area, "Remote RPC nodes", self.remote_workers)
+        self._field(self.page_area, "Local GPU device IDs", self.gpu_devices)
+        self._field(self.page_area, "Execution mode", self.mode)
+        self._field(self.page_area, "GPU policy", self.gpu_policy)
+        self._field(self.page_area, "Image backend", self.image_backend)
+        self._field(self.page_area, "Text size", self.text_scale)
+        ttk.Button(self.page_area, text="Save settings", command=self._save_settings).pack(anchor="w", pady=10)
 
     def _field(self, parent, label, variable, hint=None):
         ttk.Label(parent, text=label, background=PANEL, foreground=TEXT).pack(anchor="w", pady=(10, 3))
