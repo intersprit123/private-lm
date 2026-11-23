@@ -1,14 +1,14 @@
-name: Windows Host EXE
+name: PrivateLM Windows Host EXE
 on:
   push:
-    branches: [windows]
+    branches: [windows, feature/device-cluster-foundation]
   pull_request:
-    branches: [windows]
+    branches: [windows, feature/device-cluster-foundation]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  build-windows-host:
+  test-and-build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,16 +16,19 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-      - name: Install PyInstaller
-        run: python -m pip install --upgrade pyinstaller
-      - name: Compile Python launcher
-        run: python -m py_compile windows_host/privatelm_windows_host.py
+          cache-dependency-path: windows_host/requirements-build.txt
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r windows_host/requirements-build.txt
+      - name: Compile Python modules
+        run: python -m compileall -q windows_host tests
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
       - name: Build standalone EXE
-        run: pyinstaller --noconfirm --clean --onefile --windowed --name PrivateLM-Windows-Host windows_host/privatelm_windows_host.py
+        run: pyinstaller --noconfirm --clean --onefile --windowed --collect-all cryptography --name PrivateLM-Windows-Host windows_host/privatelm_windows_host.py
       - name: Upload Windows host EXE
         uses: actions/upload-artifact@v4
         with:
-          name: PrivateLM-Windows-Host-${{ github.sha }}
+          name: PrivateLM-Windows-Host-\${{ github.sha }}
           path: dist/PrivateLM-Windows-Host.exe
           if-no-files-found: error
           retention-days: 14
