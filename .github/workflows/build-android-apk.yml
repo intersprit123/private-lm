@@ -46,6 +46,9 @@ jobs:
           if [ ! -d local_plugins/sd_flutter_android/android/src/main/cpp/stable-diffusion.cpp/.git ]; then
             git clone --depth 1 https://github.com/leejet/stable-diffusion.cpp.git local_plugins/sd_flutter_android/android/src/main/cpp/stable-diffusion.cpp
           fi
+          # stable-diffusion.cpp keeps ggml as a nested submodule; CMake needs it
+          # even when the optional examples and other third-party components are unused.
+          git -C local_plugins/sd_flutter_android/android/src/main/cpp/stable-diffusion.cpp submodule update --init --depth 1 ggml
 
       - name: Install Flutter dependencies
         run: flutter pub get
