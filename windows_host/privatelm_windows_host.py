@@ -11,6 +11,8 @@ import socket
 import subprocess
 import threading
 import tkinter as tk
+import qrcode
+from PIL import ImageTk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -219,6 +221,8 @@ class HostApp:
             ttk.Label(self.page_area, textvariable=self.cluster_status, background=PANEL, foreground=MUTED).pack(anchor="w", pady=4)
             ttk.Label(self.page_area, textvariable=self.pair_code, background=PANEL, foreground="#65b7ff", font=("Consolas", 13, "bold")).pack(anchor="w", pady=4)
             ttk.Label(self.page_area, textvariable=self.fingerprint, background=PANEL, foreground=MUTED, wraplength=760).pack(anchor="w", pady=4)
+            self.qr_label = ttk.Label(self.page_area, background=PANEL)
+            self.qr_label.pack(anchor="center", pady=8)
             self.nodes = tk.Listbox(self.page_area, height=4, bg=PANEL2, fg=TEXT, selectbackground=BLUE, relief="flat")
             self.nodes.pack(fill="x", pady=10)
             ttk.Button(self.page_area, text="Revoke selected device", command=self.revoke_selected).pack(anchor="e")
@@ -448,7 +452,15 @@ class HostApp:
             messagebox.showwarning(APP, "Start the secure cluster service first."); return
         code, _expiry = self.registry.issue_pairing_code()
         self.pair_code.set(f"One-time pairing code: {code}  ·  valid for 5 minutes")
-        self.log("Issued a short-lived, single-use pairing code. It is not a permanent device key.")
+        payload = json.dumps({"service":"PrivateLM Device Cluster","coordinator":f"https://{lan_ip()}:8765",
+            "pairing_code":code,"certificate_sha256":self.fingerprint.get().replace("SHA-256 certificate pin: ","")})
+        qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=7, border=3)
+        qr.add_data(payload); qr.make(fit=True)
+        image = qr.make_image(fill_color="#07111f", back_color="#ffffff").convert("RGB")
+        image.thumbnail((190, 190))
+        self.qr_photo = ImageTk.PhotoImage(image)
+        if hasattr(self, "qr_label"): self.qr_label.configure(image=self.qr_photo)
+        self.log("Issued a short-lived, single-use pairing code and refreshed the QR payload. Android currently supports manual entry of these pairing details.")
 
     def publish_config(self) -> None:
         try:
