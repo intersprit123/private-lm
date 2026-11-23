@@ -42,13 +42,19 @@ jobs:
 
       - name: Fetch Stable Diffusion native source
         run: |
-          mkdir -p local_plugins/sd_flutter_android/android/src/main/cpp
-          if [ ! -d local_plugins/sd_flutter_android/android/src/main/cpp/stable-diffusion.cpp/.git ]; then
-            git clone --depth 1 https://github.com/leejet/stable-diffusion.cpp.git local_plugins/sd_flutter_android/android/src/main/cpp/stable-diffusion.cpp
+          SD_CPP_DIR=local_plugins/sd_flutter_android/android/src/main/cpp/stable-diffusion.cpp
+          SD_CPP_COMMIT=22c8c40b0dae37fd4fbf1810f145ce2f7762d088
+          mkdir -p "$(dirname "$SD_CPP_DIR")"
+          if [ ! -d "$SD_CPP_DIR/.git" ]; then
+            git clone --filter=blob:none --no-checkout https://github.com/leejet/stable-diffusion.cpp.git "$SD_CPP_DIR"
           fi
-          # stable-diffusion.cpp keeps ggml as a nested submodule; CMake needs it
-          # even when the optional examples and other third-party components are unused.
-          git -C local_plugins/sd_flutter_android/android/src/main/cpp/stable-diffusion.cpp submodule update --init --depth 1 ggml
+          # Pin to the C API used by this plugin's existing sd_jni_wrapper.cpp.
+          # Newer upstream revisions changed the API and no longer compile this wrapper.
+          git -C "$SD_CPP_DIR" fetch --depth 1 origin "$SD_CPP_COMMIT"
+          git -C "$SD_CPP_DIR" checkout --detach "$SD_CPP_COMMIT"
+          # The pinned stable-diffusion.cpp revision has ggml as a nested submodule.
+          git -C "$SD_CPP_DIR" submodule sync -- ggml
+          git -C "$SD_CPP_DIR" submodule update --init --depth 1 ggml
 
       - name: Install Flutter dependencies
         run: flutter pub get
