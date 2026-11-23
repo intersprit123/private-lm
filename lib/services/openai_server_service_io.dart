@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../controllers/settings_controller.dart';
 import '../core/constants.dart';
 import 'inference_service.dart';
+import 'app_log_service.dart';
 
 class OpenAiServerService {
   HttpServer? _server;
@@ -76,6 +77,12 @@ class OpenAiServerService {
 
   Future<void> _handle(HttpRequest request) async {
     try {
+      final remote = request.connectionInfo?.remoteAddress.address ?? 'unknown';
+      if (Get.isRegistered<AppLogService>()) {
+        Get.find<AppLogService>().info(
+          '[Connection] ${request.method} ${request.uri.path} from $remote',
+        );
+      }
       _addCorsHeaders(request.response);
       if (request.method == 'OPTIONS') {
         request.response.statusCode = HttpStatus.noContent;
