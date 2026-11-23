@@ -1,17 +1,18 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:llama_flutter_android/llama_flutter_android.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../core/constants.dart';
 import '../services/cluster_service.dart';
 import '../services/hive_service.dart';
 import '../services/windows_cluster_client.dart';
 
-/// UI for joining a Windows PrivateLM coordinator as a settings/control member.
-/// It deliberately does not label a paired phone as an inference worker.
+/// Joins a Windows PrivateLM coordinator as a settings/control member.
 class WindowsCoordinatorPanel extends StatefulWidget {
   const WindowsCoordinatorPanel({super.key});
 
@@ -28,8 +29,9 @@ class _WindowsCoordinatorPanelState extends State<WindowsCoordinatorPanel> {
   bool _paired = false;
   bool _busy = false;
   bool _polling = false;
+  bool _qrVerified = false;
   String _status = 'Not connected to a Windows coordinator';
-  String _details = 'Pairing syncs settings only. Compute participation is verified separately.';
+  String _details = 'Scan the QR displayed in the Windows PrivateLM app to pair securely.';
   int _lastRevision = 0;
 
   @override
@@ -62,6 +64,87 @@ class _WindowsCoordinatorPanelState extends State<WindowsCoordinatorPanel> {
     }
   }
 
+  Future<void> _scanWindowsQr() async {
+    final controller = MobileScannerController(
+      detectionSpeed: DetectionSpeed.noDuplicates,
+      formats: const [BarcodeFormat.qrCode],
+    );
+    var handled = false;
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Scan Windows PrivateLM QR'),
+          content: SizedBox(
+            width: 320,
+            height: 360,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: MobileScanner(
+                controller: controller,
+                onDetect: (capture) async {
+                  if (handled) return;
+                  final raw = capture.barcodes
+                      .map((barcode) => barcode.rawValue)
+                      .whereType<String>()
+                      .firstWhereOrNull((value) => value.isNotEmpty);
+                  if (raw == null) return;
+                  handled = true;
+                  try {
+                    final data = jsonDecode(raw);
+                    if (data is! Map<String, dynamic> ||
+                        data['service'] != 'PrivateLM Device Cluster') {
+                      throw const FormatException(
+                        'This is not a PrivateLM Device Cluster QR code. Generate the pairing QR in Windows → Devices.',
+                      );
+                    }
+                    final coordinator = data['coordinator']?.toString() ?? '';
+                    final code = data['pairing_code']?.toString() ?? '';
+                    final fingerprint = data['certificate_sha256']?.toString() ?? '';
+                    final uri = Uri.tryParse(coordinator);
+                    final cleanPin = fingerprint.replaceAll(RegExp(r'[^0-9a-fA-F]'), '');
+                    if (uri == null || uri.scheme != 'https' || uri.host.isEmpty ||
+                        !RegExp(r'^\\d{8}$').hasMatch(code) ||
+                        !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(cleanPin)) {
+                      throw const FormatException(
+                        'The PrivateLM QR is incomplete or invalid. Start the Windows cluster service and generate a fresh QR.',
+                      );
+                    }
+                    if (!mounted) return;
+                    setState(() {
+                      _host.text = coordinator;
+                      _code.text = code;
+                      _fingerprint.text = cleanPin.toUpperCase();
+                      _qrVerified = true;
+                      _details = 'Windows PrivateLM QR verified. Pairing code and certificate pin loaded automatically.';
+                      _status = 'QR verified · ready to pair';
+                    });
+                    Navigator.of(dialogContext).pop();
+                  } catch (error) {
+                    handled = false;
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(error.toString().replaceFirst('FormatException: ', ''))),
+                    );
+                  }
+                },
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      await controller.dispose();
+    }
+  }
+
   Future<Map<String, dynamic>> _identity() async {
     final cluster = Get.find<ClusterService>();
     final freeRam = await LlamaCluster.localFreeRamMb();
@@ -88,7 +171,7 @@ class _WindowsCoordinatorPanelState extends State<WindowsCoordinatorPanel> {
     if (_busy) return;
     setState(() {
       _busy = true;
-      _status = 'Verifying TLS certificate and pairing…';
+      _status = 'Verifying Windows certificate and pairing…';
     });
     try {
       final config = await _client.pair(
@@ -221,11 +304,38 @@ class _WindowsCoordinatorPanelState extends State<WindowsCoordinatorPanel> {
             Text(_details, style: t.textTheme.bodySmall),
             if (!_paired) ...[
               const SizedBox(height: 12),
-              TextField(controller: _host, decoration: _decoration('Coordinator HTTPS address', hint: 'https://192.168.1.10:8765')),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _busy ? null : _scanWindowsQr,
+                  icon: const Icon(Icons.qr_code_scanner_rounded),
+                  label: const Text('Scan Windows PrivateLM QR'),
+                ),
+              ),
+              if (_qrVerified) ...[
+                const SizedBox(height: 8),
+                Row(children: [
+                  const Icon(Icons.verified_rounded, color: Colors.green, size: 18),
+                  const SizedBox(width: 6),
+                  Expanded(child: Text('PrivateLM QR verified', style: t.textTheme.bodySmall)),
+                ]),
+                const SizedBox(height: 6),
+                Text(_host.text, style: t.textTheme.bodySmall),
+              ],
               const SizedBox(height: 8),
-              TextField(controller: _code, keyboardType: TextInputType.number, maxLength: 8, decoration: _decoration('One-time pairing code')),
+              TextField(controller: _host, readOnly: _qrVerified,
+                  decoration: _decoration('Coordinator HTTPS address', hint: 'Scan the Windows QR to fill this')),
               const SizedBox(height: 8),
-              TextField(controller: _fingerprint, maxLines: 2, decoration: _decoration('SHA-256 certificate fingerprint', hint: 'Paste the 64-character fingerprint shown on Windows')),
+              TextField(controller: _code, readOnly: _qrVerified,
+                  keyboardType: TextInputType.number, maxLength: 8,
+                  decoration: _decoration('One-time pairing code')),
+              const SizedBox(height: 8),
+              if (_qrVerified)
+                Text('Certificate fingerprint verified from QR and stored for TLS pinning. No manual paste needed.',
+                    style: t.textTheme.bodySmall)
+              else
+                TextField(controller: _fingerprint, maxLines: 2,
+                    decoration: _decoration('SHA-256 certificate fingerprint')),
               const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
