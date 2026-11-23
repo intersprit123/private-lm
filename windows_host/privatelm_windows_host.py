@@ -79,6 +79,8 @@ class HostApp:
         self.pair_code = tk.StringVar(value="Start the secure cluster service to create a code")
         self.fingerprint = tk.StringVar(value="Certificate fingerprint: not generated")
         self.hardware_text = tk.StringVar(value="Detecting hardware…")
+        self.hw = None
+        self.compute_choice = tk.StringVar(value=self.saved.get("compute_choice", "both"))
         self._build()
         self.text_scale.trace_add('write', lambda *_: self.apply_text_scale())
         self.apply_text_scale()
@@ -96,7 +98,7 @@ class HostApp:
     def _save_settings(self) -> None:
         if self.startup.get() != "remember":
             return
-        values = {"server": self.server.get(), "model": self.model.get(), "port": self.port.get(),
+        values = {"compute_choice": self.compute_choice.get(), "server": self.server.get(), "model": self.model.get(), "port": self.port.get(),
                   "context_size": self.ctx.get(), "cpu_threads": self.threads.get(), "gpu_layers": self.ngl.get(),
                   "max_output_tokens": self.max_tokens.get(), "temperature": self.temperature.get(),
                   "ram_budget_percent": self.ram_budget.get(), "execution_mode": self.mode.get(),
@@ -111,91 +113,156 @@ class HostApp:
         style.theme_use("clam")
         style.configure("TFrame", background=BG)
         style.configure("Panel.TFrame", background=PANEL)
-        style.configure("TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 10))
+        style.configure("TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 11))
         style.configure("Muted.TLabel", background=BG, foreground=MUTED)
-        style.configure("Title.TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 24, "bold"))
-        style.configure("PanelTitle.TLabel", background=PANEL, foreground=TEXT, font=("Segoe UI", 12, "bold"))
-        style.configure("Section.TLabel", background=BG, foreground="#65b7ff", font=("Segoe UI", 13, "bold"))
-        style.configure("TEntry", fieldbackground=PANEL2, foreground=TEXT, insertcolor=TEXT, bordercolor="#29415f")
+        style.configure("Title.TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 30, "bold"))
+        style.configure("PanelTitle.TLabel", background=PANEL, foreground=TEXT, font=("Segoe UI", 15, "bold"))
+        style.configure("Section.TLabel", background=BG, foreground="#65b7ff", font=("Segoe UI", 15, "bold"))
+        style.configure("TEntry", fieldbackground=PANEL2, foreground=TEXT, insertcolor=TEXT)
         style.configure("TCombobox", fieldbackground=PANEL2, foreground=TEXT, background=PANEL2)
-        style.configure("TButton", background="#1d4774", foreground=TEXT, padding=(12, 7), borderwidth=0)
+        style.configure("TButton", background="#1d4774", foreground=TEXT, padding=(18, 10), borderwidth=0, font=("Segoe UI", 10, "bold"))
         style.map("TButton", background=[("active", BLUE), ("disabled", "#26394e")])
         style.configure("TCheckbutton", background=PANEL, foreground=TEXT)
         style.configure("TSpinbox", fieldbackground=PANEL2, foreground=TEXT)
+        self.root.configure(bg=BG)
+        self.root.geometry("1040x760")
+        self.root.minsize(900, 660)
 
-        canvas = tk.Canvas(self.root, bg=BG, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
-        scrollbar.pack(side="right", fill="y")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        outer = ttk.Frame(canvas, padding=20)
-        window = canvas.create_window((0, 0), window=outer, anchor="nw")
-        outer.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(window, width=e.width))
-        ttk.Label(outer, text="PrivateLM", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(outer, text="LOCAL INFERENCE  ·  DISTRIBUTED DEVICE CONTROL", style="Muted.TLabel").pack(anchor="w", pady=(0, 12))
-        self._section(outer, "Hardware detected")
-        ttk.Label(outer, textvariable=self.hardware_text, style="Muted.TLabel", wraplength=920).pack(fill="x", pady=(0, 12))
-        self._section(outer, "Local inference engine")
-        self._file_row(outer, "llama-server.exe", self.server, self.pick_server)
-        self._file_row(outer, "GGUF model", self.model, self.pick_model)
-        grid = ttk.Frame(outer); grid.pack(fill="x", pady=4)
-        for i, (label, var) in enumerate((("API port", self.port), ("Context", self.ctx),
-            ("CPU threads (0 = auto)", self.threads), ("GPU layers", self.ngl),
-            ("Max output tokens", self.max_tokens), ("Temperature (0–2)", self.temperature))):
-            cell = ttk.Frame(grid); cell.grid(row=i // 3, column=i % 3, sticky="ew", padx=5, pady=4)
-            ttk.Label(cell, text=label, style="Muted.TLabel").pack(anchor="w")
-            ttk.Entry(cell, textvariable=var).pack(fill="x")
-        for i in range(3): grid.columnconfigure(i, weight=1)
-        self._file_row(outer, "Remote RPC nodes", self.remote_workers, None)
-        gpurow = ttk.Frame(outer); gpurow.pack(fill="x", pady=4)
-        ttk.Label(gpurow, text="Local GPU device IDs", style="Muted.TLabel", width=22).pack(side="left")
-        ttk.Entry(gpurow, textvariable=self.gpu_devices).pack(side="left", fill="x", expand=True)
-        ttk.Button(gpurow, text="Detect llama.cpp devices", command=self.detect_llama_devices).pack(side="left", padx=6)
-        ttk.Label(outer, text="Optional: exact IDs printed by this llama-server.exe --list-devices command. Single-GPU mode requires one ID.", style="Muted.TLabel", wraplength=920).pack(anchor="w", padx=6)
-        ttk.Label(outer, text="Remote nodes use host:port values, require a llama-server build with GGML_RPC and must remain on an isolated trusted LAN/VPN.", style="Muted.TLabel", wraplength=920).pack(anchor="w", padx=6)
-        keyrow = ttk.Frame(outer); keyrow.pack(fill="x", pady=5)
-        ttk.Label(keyrow, text="Inference API key", style="Muted.TLabel", width=22).pack(side="left")
-        self.key_entry = ttk.Entry(keyrow, textvariable=self.key, show="•")
-        self.key_entry.pack(side="left", fill="x", expand=True)
-        ttk.Button(keyrow, text="Show", command=self.toggle_key).pack(side="left", padx=4)
-        ttk.Button(keyrow, text="Copy", command=self.copy_key).pack(side="left", padx=4)
-        ttk.Button(keyrow, text="New key", command=self.new_key).pack(side="left", padx=4)
-        actions = ttk.Frame(outer); actions.pack(fill="x", pady=8)
-        ttk.Button(actions, text="Start inference", command=self.start).pack(side="left")
-        ttk.Button(actions, text="Stop inference", command=self.stop).pack(side="left", padx=8)
-        ttk.Label(actions, textvariable=self.status, style="Muted.TLabel").pack(side="right")
-        self._section(outer, "Device Cluster · master settings")
-        config = ttk.Frame(outer, style="Panel.TFrame", padding=12); config.pack(fill="x", pady=(0, 9))
-        row = ttk.Frame(config, style="Panel.TFrame"); row.pack(fill="x")
-        self._choice(row, "Execution mode", self.mode, ["performance", "performance_group", "extreme_force"])
-        self._choice(row, "GPU policy", self.gpu_policy, ["auto", "cpu", "single", "all_compatible"])
-        self._choice(row, "Image backend", self.image_backend, ["auto", "cpu", "gpu"])
-        self._choice(row, "Text size", self.text_scale, ["small", "medium", "large"])
-        row2 = ttk.Frame(config, style="Panel.TFrame"); row2.pack(fill="x", pady=(8, 0))
-        ttk.Label(row2, text="RAM budget % (10–70; at least 30% reserved for OS)", background=PANEL, foreground=MUTED).pack(side="left")
-        ttk.Spinbox(row2, from_=10, to=70, width=6, textvariable=self.ram_budget).pack(side="left", padx=10)
-        self._choice(row2, "Startup", self.startup, ["remember", "ask"])
-        ttk.Button(config, text="Publish settings to paired devices", command=self.publish_config).pack(anchor="e", pady=(10, 0))
-        control = ttk.Frame(outer, style="Panel.TFrame", padding=12); control.pack(fill="x", pady=(0, 10))
-        ttk.Label(control, text="Secure pairing and device status", style="PanelTitle.TLabel").pack(anchor="w")
-        ttk.Label(control, textvariable=self.cluster_status, background=PANEL, foreground=MUTED).pack(anchor="w", pady=3)
-        row3 = ttk.Frame(control, style="Panel.TFrame"); row3.pack(fill="x", pady=5)
-        ttk.Button(row3, text="Start secure cluster service", command=self.start_control).pack(side="left")
-        ttk.Button(row3, text="Stop service", command=self.stop_control).pack(side="left", padx=8)
-        ttk.Button(row3, text="Create one-time pairing code", command=self.new_pair_code).pack(side="left")
-        ttk.Label(control, textvariable=self.pair_code, background=PANEL, foreground="#65b7ff", font=("Consolas", 11, "bold")).pack(anchor="w", pady=3)
-        ttk.Label(control, textvariable=self.fingerprint, background=PANEL, foreground=MUTED, wraplength=900).pack(anchor="w")
-        self.nodes = tk.Listbox(control, height=4, bg=PANEL2, fg=TEXT, selectbackground=BLUE, relief="flat")
-        self.nodes.pack(fill="x", pady=7)
-        ttk.Button(control, text="Revoke selected device", command=self.revoke_selected).pack(anchor="e")
-        self._section(outer, "Activity and diagnostics")
-        self.text = tk.Text(outer, height=9, wrap="word", bg="#050c16", fg="#b9d7f5",
-                            insertbackground=TEXT, relief="flat", font=("Consolas", 9))
-        self.text.pack(fill="both", expand=True)
-        self.log("Choose llama-server.exe and a GGUF model. Hardware inventory is advisory; the backend must confirm GPU support.")
-        self.log(f"Detailed inference log: {self.log_path}")
-        ttk.Label(outer, text="Network note: the OpenAI-compatible inference endpoint is HTTP. Use only on a trusted private LAN or VPN; never port-forward it to the public internet.", style="Muted.TLabel", wraplength=920).pack(anchor="w", pady=10)
+        shell = ttk.Frame(self.root, padding=(34, 26))
+        shell.pack(fill="both", expand=True)
+        top = ttk.Frame(shell); top.pack(fill="x")
+        ttk.Label(top, text="PrivateLM", style="Title.TLabel").pack(side="left")
+        ttk.Label(top, text="LOCAL AI  ·  DEVICE CLUSTER", style="Muted.TLabel").pack(side="right", pady=14)
+        self.page_title = tk.StringVar(value="Getting your device ready")
+        ttk.Label(shell, textvariable=self.page_title, style="Section.TLabel").pack(anchor="center", pady=(24, 8))
+        self.progress = tk.StringVar(value="STEP 1 OF 5")
+        ttk.Label(shell, textvariable=self.progress, style="Muted.TLabel").pack(anchor="center", pady=(0, 14))
+        self.page_area = ttk.Frame(shell, style="Panel.TFrame", padding=26)
+        self.page_area.pack(fill="both", expand=True)
+        nav = ttk.Frame(shell); nav.pack(fill="x", pady=(18, 0))
+        self.back_button = ttk.Button(nav, text="Back", command=self._previous_page)
+        self.back_button.pack(side="left")
+        self.next_button = ttk.Button(nav, text="Next", command=self._next_page)
+        self.next_button.pack(side="right")
+        self._show_page(0)
+        self.root.after(250, self._detect_hardware)
+
+    def _field(self, parent, label, variable, hint=None):
+        ttk.Label(parent, text=label, background=PANEL, foreground=TEXT).pack(anchor="w", pady=(10, 3))
+        entry = ttk.Entry(parent, textvariable=variable)
+        entry.pack(fill="x", ipady=6)
+        if hint:
+            ttk.Label(parent, text=hint, background=PANEL, foreground=MUTED, wraplength=760).pack(anchor="w", pady=(2, 0))
+        return entry
+
+    def _show_page(self, index: int) -> None:
+        self.page_index = index
+        for child in self.page_area.winfo_children():
+            child.destroy()
+        titles = ["Identifying your hardware", "Choose your compute devices", "Memory and context", "Choose your AI engine", "Save and connect", "Your PrivateLM host"]
+        self.page_title.set(titles[index])
+        self.progress.set("SETUP COMPLETE" if index == 5 else f"STEP {index + 1} OF 5")
+        self.back_button.configure(state="disabled" if index in (0, 5) else "normal")
+        self.next_button.configure(text="Finish setup" if index == 4 else "Next", state="disabled" if index == 0 else "normal")
+        if index == 0:
+            ttk.Label(self.page_area, text="IDENTIFYING GPUs · CPU · RAM · VRAM", background=PANEL,
+                      foreground="#65b7ff", font=("Segoe UI", 23, "bold")).pack(expand=True, pady=(45, 18))
+            ttk.Label(self.page_area, text="PrivateLM is inspecting the hardware available to this computer.",
+                      background=PANEL, foreground=MUTED, font=("Segoe UI", 12)).pack()
+            self.hardware_summary = tk.StringVar(value="Scanning hardware…")
+            ttk.Label(self.page_area, textvariable=self.hardware_summary, background=PANEL, foreground=TEXT,
+                      justify="center", wraplength=760).pack(pady=28)
+            self.root.after(900, lambda: self.next_button.configure(state="normal"))
+        elif index == 1:
+            ttk.Label(self.page_area, text="Choose where inference should run.", background=PANEL, foreground=MUTED).pack(anchor="w")
+            self.compute_choice = getattr(self, "compute_choice", tk.StringVar(value=self.saved.get("compute_choice", "both")))
+            for label, value in [("CPU only", "cpu"), ("GPU only", "gpu"), ("CPU + GPU", "both")]:
+                ttk.Radiobutton(self.page_area, text=label, value=value, variable=self.compute_choice).pack(anchor="w", pady=8)
+            self._field(self.page_area, "CPU threads to use (0 = automatic)", self.threads,
+                        "The app detects logical threads. Leave 0 for the backend to choose automatically.")
+            self._field(self.page_area, "GPU device IDs (comma-separated)", self.gpu_devices,
+                        "Use Detect after selecting llama-server.exe on the engine screen. Hardware inventory alone does not guarantee backend support.")
+            self._field(self.page_area, "GPU layers to offload (0 = CPU only)", self.ngl,
+                        "Layer offload is the supported control; exact VRAM quotas are not generally enforceable.")
+        elif index == 2:
+            ttk.Label(self.page_area, text="Keep enough memory free for Windows and other apps.", background=PANEL, foreground=MUTED).pack(anchor="w")
+            self._field(self.page_area, "RAM budget (%)", self.ram_budget, "Choose 10–70%. PrivateLM reserves at least 30% for the operating system; this is a policy, not a hard memory lock.")
+            self._field(self.page_area, "Context length (tokens)", self.ctx, "How much conversation and prompt context the model can consider.")
+            self._field(self.page_area, "Maximum output tokens", self.max_tokens, "Maximum generated response length. Must not exceed the context length.")
+            self._field(self.page_area, "Temperature (0–2)", self.temperature, "Lower is more predictable; higher is more varied.")
+            ttk.Button(self.page_area, text="Auto configure", command=self._auto_configure).pack(anchor="e", pady=18)
+        elif index == 3:
+            ttk.Label(self.page_area, text="Select the inference engine and model files.", background=PANEL, foreground=MUTED).pack(anchor="w", pady=(0, 8))
+            self._file_row(self.page_area, "llama-server.exe", self.server, self.pick_server)
+            self._file_row(self.page_area, "GGUF model", self.model, self.pick_model)
+            ttk.Button(self.page_area, text="Detect available llama.cpp GPUs", command=self.detect_llama_devices).pack(anchor="w", pady=12)
+            ttk.Label(self.page_area, text="Other compatible engines can be selected by pointing to their server executable when supported. This build currently launches llama.cpp server.", background=PANEL, foreground=MUTED, wraplength=760).pack(anchor="w", pady=8)
+        elif index == 4:
+            self.startup = getattr(self, "startup", tk.StringVar(value=self.saved.get("startup_behavior", "ask")))
+            ttk.Label(self.page_area, text="How should PrivateLM handle these settings next time?", background=PANEL, foreground=MUTED).pack(anchor="w")
+            for label, value in [("Save my settings", "remember"), ("Ask me on every startup", "ask")]:
+                ttk.Radiobutton(self.page_area, text=label, value=value, variable=self.startup).pack(anchor="w", pady=10)
+            self._field(self.page_area, "Host port", self.port, "Default: 8080")
+            self._field(self.page_area, "Inference API key", self.key, "This key protects the OpenAI-compatible inference endpoint. Keep it private.")
+            ttk.Label(self.page_area, text="The Device Cluster control service uses separate short-lived pairing codes and TLS certificate pinning.", background=PANEL, foreground=MUTED, wraplength=760).pack(anchor="w", pady=16)
+        else:
+            ttk.Label(self.page_area, text="Your host is ready to configure.", background=PANEL, foreground=TEXT, font=("Segoe UI", 17, "bold")).pack(anchor="w", pady=(0, 12))
+            ttk.Label(self.page_area, textvariable=self.status, background=PANEL, foreground="#65b7ff").pack(anchor="w", pady=4)
+            ttk.Label(self.page_area, text="Inference API", background=PANEL, foreground=MUTED).pack(anchor="w", pady=(18, 3))
+            ttk.Label(self.page_area, text=f"http://{lan_ip()}:{self.port.get()}/v1", background=PANEL, foreground=TEXT).pack(anchor="w")
+            ttk.Label(self.page_area, text="Model alias: local-model", background=PANEL, foreground=MUTED).pack(anchor="w", pady=3)
+            row = ttk.Frame(self.page_area, style="Panel.TFrame"); row.pack(fill="x", pady=18)
+            ttk.Button(row, text="Start inference", command=self.start).pack(side="left")
+            ttk.Button(row, text="Stop inference", command=self.stop).pack(side="left", padx=8)
+            ttk.Button(row, text="Start Device Cluster service", command=self.start_control).pack(side="left", padx=8)
+            ttk.Button(self.page_area, text="Create / refresh pairing code", command=self.new_pair_code).pack(anchor="w", pady=6)
+            ttk.Label(self.page_area, textvariable=self.cluster_status, background=PANEL, foreground=MUTED).pack(anchor="w", pady=4)
+            ttk.Label(self.page_area, textvariable=self.pair_code, background=PANEL, foreground="#65b7ff", font=("Consolas", 13, "bold")).pack(anchor="w", pady=4)
+            ttk.Label(self.page_area, textvariable=self.fingerprint, background=PANEL, foreground=MUTED, wraplength=760).pack(anchor="w", pady=4)
+            self.nodes = tk.Listbox(self.page_area, height=4, bg=PANEL2, fg=TEXT, selectbackground=BLUE, relief="flat")
+            self.nodes.pack(fill="x", pady=10)
+            ttk.Button(self.page_area, text="Revoke selected device", command=self.revoke_selected).pack(anchor="e")
+            ttk.Label(self.page_area, text="Use only on a trusted private network or VPN. Never expose these services directly to the public internet.", background=PANEL, foreground=MUTED, wraplength=760).pack(anchor="w", pady=12)
+            self.text = tk.Text(self.page_area, height=5, wrap="word", bg="#050c16", fg="#b9d7f5", insertbackground=TEXT, relief="flat", font=("Consolas", 9))
+            self.text.pack(fill="both", expand=True, pady=(8, 0))
+            self.log("PrivateLM host dashboard ready.")
+            self.log(f"Detailed inference log: {self.log_path}")
+
+    def _next_page(self) -> None:
+        if self.page_index == 4:
+            try:
+                ClusterConfig(context_size=int(self.ctx.get()), max_output_tokens=int(self.max_tokens.get()),
+                    temperature=float(self.temperature.get()), cpu_threads=int(self.threads.get() or 0),
+                    ram_budget_percent=int(self.ram_budget.get()), execution_mode=self.mode.get(),
+                    gpu_policy=self.gpu_policy.get(), image_backend=self.image_backend.get(),
+                    text_scale=self.text_scale.get(), startup_behavior=self.startup.get()).validate()
+                if not 1024 <= int(self.port.get()) <= 65535:
+                    raise ValueError("Port must be between 1024 and 65535.")
+                if len(self.key.get().strip()) < 16:
+                    raise ValueError("API key must contain at least 16 characters.")
+            except (ValueError, TypeError) as exc:
+                messagebox.showerror(APP, str(exc)); return
+            self._save_settings()
+            self._show_page(5)
+            return
+        if self.page_index == 1:
+            choice = self.compute_choice.get()
+            self.gpu_policy.set("cpu" if choice == "cpu" else "single" if choice == "gpu" else "auto")
+            if choice == "cpu": self.ngl.set("0")
+        self._show_page(self.page_index + 1)
+
+    def _previous_page(self) -> None:
+        if self.page_index > 0 and self.page_index < 5:
+            self._show_page(self.page_index - 1)
+
+    def _auto_configure(self) -> None:
+        self.threads.set("0")
+        self.ram_budget.set("40")
+        self.ctx.set("4096")
+        self.max_tokens.set("512")
+        self.temperature.set("0.7")
+        self.ngl.set("0" if self.compute_choice.get() == "cpu" else "99")
+        self.log("Applied conservative automatic defaults. GPU layer offload is still validated by llama.cpp at launch.")
 
     def apply_text_scale(self) -> None:
         scale = {"small": 0.88, "medium": 1.0, "large": 1.16}.get(self.text_scale.get(), 1.0)

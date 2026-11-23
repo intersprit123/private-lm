@@ -24,7 +24,7 @@ jobs:
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
       - name: Build standalone EXE
-        run: pyinstaller --noconfirm --clean --onefile --windowed --paths windows_host --hidden-import cluster_config --hidden-import cluster_protocol --hidden-import hardware --collect-all cryptography --name PrivateLM-Windows-Host windows_host/privatelm_windows_host.py
+        run: pyinstaller --noconfirm --clean --onefile --windowed --collect-all cryptography --name PrivateLM-Windows-Host windows_host/privatelm_windows_host.py
       - name: Upload Windows host EXE
         uses: actions/upload-artifact@v4
         with:
