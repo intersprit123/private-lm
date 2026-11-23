@@ -282,6 +282,11 @@ class HostApp:
         self.qr_label = ttk.Label(self.page_area); self.qr_label.pack(anchor="center", pady=10)
         self.nodes = tk.Listbox(self.page_area, height=8, bg=PANEL2, fg=TEXT, selectbackground=BLUE, relief="flat")
         self.nodes.pack(fill="both", expand=True, pady=8)
+        task_row = ttk.Frame(self.page_area); task_row.pack(fill="x", pady=(4, 2))
+        ttk.Button(task_row, text="Queue worker health check", command=self.queue_worker_probe).pack(side="left")
+        ttk.Label(task_row, text="Allowlisted diagnostic only; no shell commands.", style="Muted.TLabel").pack(side="left", padx=8)
+        self.task_status = tk.StringVar(value="No worker tasks queued")
+        ttk.Label(self.page_area, textvariable=self.task_status, style="Muted.TLabel").pack(anchor="w", pady=3)
         ttk.Button(self.page_area, text="Revoke selected device", command=self.revoke_selected).pack(anchor="e")
         ttk.Label(self.page_area, text="Pairing codes expire after five minutes and can only be used once. Use a trusted LAN or VPN; do not expose the host to the public internet.",
                   style="Muted.TLabel", wraplength=900).pack(anchor="w", pady=8)
@@ -721,6 +726,11 @@ class HostApp:
                 mem_text = f"{safe_mb} MB safe / {held_mb} MB held" if safe_mb or held_mb else "memory unknown"
                 ack = f"rev {node['config_ack_revision']} {'OK' if node['config_ack_ok'] else 'pending/rejected'}"
                 self.nodes.insert("end", f"{node['id']}  |  {node['name']} ({node['platform']})  |  {status}  |  {worker}  |  {eligible}  |  {mem_text}  |  {ack}")
+            tasks = self.registry.task_snapshot()
+            active = sum(1 for task in tasks if task.get("state") in {"assigned", "running"})
+            failed = sum(1 for task in tasks if task.get("state") == "failed")
+            if hasattr(self, "task_status"):
+                self.task_status.set(f"Worker tasks: {active} active · {failed} failed · {len(tasks)} total")
         self.root.after(2500, self._refresh_nodes)
 
     def _apply_remote_compute_config(self, config: dict) -> None:
@@ -747,6 +757,21 @@ class HostApp:
             if self.proc and self.proc.poll() is None:
                 self.stop(); self.start()
             else: self.log("GPU selection saved; start inference to use it.")
+    def queue_worker_probe(self) -> None:
+        selection = self.nodes.curselection()
+        if not selection:
+            messagebox.showinfo(APP, "Select a paired device first.")
+            return
+        nodes = self.registry.snapshot()
+        if selection[0] >= len(nodes): return
+        node = nodes[selection[0]]
+        try:
+            task = self.registry.create_task("worker_probe", {"requested_by": "Windows host UI"}, node["id"])
+            self.task_status.set(f"Task {task['id']} assigned to {node['name']} · waiting for Android task polling")
+            self.log(f"Queued worker health check {task['id']} for {node['name']}.")
+        except ValueError as exc:
+            messagebox.showwarning(APP, str(exc))
+
     def revoke_selected(self) -> None:
         selection = self.nodes.curselection()
         if not selection: return

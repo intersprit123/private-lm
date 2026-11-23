@@ -25,6 +25,9 @@ except ImportError:  # running the frozen/standalone GUI script
 
 MAX_BODY = 64 * 1024
 PAIR_TTL_SECONDS = 300
+TASK_LEASE_SECONDS = 30
+TASK_MAX_ATTEMPTS = 3
+TASK_TYPES = {"worker_probe", "memory_report", "benchmark"}
 
 
 def create_tls_identity(directory: Path, host_ip: str) -> tuple[Path, Path, str]:
@@ -72,6 +75,7 @@ class ClusterRegistry:
         self.lock = threading.RLock()
         self.config = ClusterConfig()
         self.nodes: dict[str, dict[str, Any]] = {}
+        self.tasks: dict[str, dict[str, Any]] = {}
         self.pair_hash: str | None = None
         self.pair_expires = 0.0
         self.pair_used = False
@@ -85,14 +89,18 @@ class ClusterRegistry:
             data = json.loads(self.state_path.read_text(encoding="utf-8"))
             self.config = ClusterConfig.from_dict(data.get("config", {}))
             self.nodes = data.get("nodes", {})
+            self.tasks = data.get("tasks", {})
+            if not isinstance(self.nodes, dict): self.nodes = {}
+            if not isinstance(self.tasks, dict): self.tasks = {}
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             self.nodes = {}
+            self.tasks = {}
             self.config = ClusterConfig()
 
     def _save(self) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.state_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"config": self.config.to_dict(), "nodes": self.nodes}, indent=2), encoding="utf-8")
+        tmp.write_text(json.dumps({"config": self.config.to_dict(), "nodes": self.nodes, "tasks": self.tasks}, indent=2), encoding="utf-8")
         os.replace(tmp, self.state_path)
 
     def issue_pairing_code(self) -> tuple[str, float]:
@@ -208,6 +216,94 @@ class ClusterRegistry:
             self._save()
             return self.config.to_dict()
 
+
+    def _eligible_nodes(self, exclude: set[str] | None = None) -> list[dict[str, Any]]:
+        excluded = exclude or set()
+        now = int(time.time())
+        return [node for node in self.nodes.values()
+                if node["id"] not in excluded
+                and now - int(node.get("last_seen", 0)) <= 15
+                and node.get("capabilities", {}).get("worker_state") == "ready"
+                and node.get("capabilities", {}).get("native_rpc_version") == "rpc7"
+                and node.get("capabilities", {}).get("worker_throttled") is not True]
+
+    def create_task(self, task_type: str, payload: dict[str, Any], node_id: str | None = None) -> dict[str, Any]:
+        with self.lock:
+            if task_type not in TASK_TYPES: raise ValueError("Unsupported worker task type")
+            if not isinstance(payload, dict) or len(json.dumps(payload)) > 8192:
+                raise ValueError("Task payload must be an object no larger than 8 KiB")
+            candidates = self._eligible_nodes()
+            if node_id: candidates = [node for node in candidates if node["id"] == node_id]
+            if not candidates: raise ValueError("No online, ready and compatible worker is available")
+            active = {n["id"]: 0 for n in candidates}
+            for task in self.tasks.values():
+                if task.get("state") in {"assigned", "running"} and task.get("node_id") in active:
+                    active[task["node_id"]] += 1
+            node = min(candidates, key=lambda n: active[n["id"]])
+            now = int(time.time())
+            task = {"id": secrets.token_hex(12), "type": task_type, "payload": json.loads(json.dumps(payload)),
+                    "state": "assigned", "node_id": node["id"], "created_at": now, "updated_at": now,
+                    "lease_expires_at": now + TASK_LEASE_SECONDS, "attempts": 1, "max_attempts": TASK_MAX_ATTEMPTS,
+                    "progress": 0, "error": ""}
+            self.tasks[task["id"]] = task
+            self._save()
+            return json.loads(json.dumps(task))
+
+    def poll_tasks(self, token: str) -> list[dict[str, Any]]:
+        with self.lock:
+            node = self._auth(token)
+            self._reconcile_tasks()
+            now = int(time.time())
+            result = []
+            for task in self.tasks.values():
+                if task.get("node_id") == node["id"] and task.get("state") == "assigned":
+                    task["state"] = "running"; task["updated_at"] = now
+                    task["lease_expires_at"] = now + TASK_LEASE_SECONDS
+                    result.append(json.loads(json.dumps(task)))
+            if result: self._save()
+            return result
+
+    def update_task_status(self, token: str, task_id: str, status: str, progress: int = 0,
+                           result: dict[str, Any] | None = None, error: str = "") -> dict[str, Any]:
+        with self.lock:
+            node = self._auth(token); task = self.tasks.get(task_id)
+            if not task or task.get("node_id") != node["id"]: raise ValueError("Task was not assigned to this device")
+            if task.get("state") not in {"assigned", "running"}: raise ValueError("Task is no longer active")
+            if status not in {"running", "completed", "failed"}: raise ValueError("Unsupported task status")
+            if not isinstance(progress, int) or isinstance(progress, bool) or not 0 <= progress <= 100:
+                raise ValueError("Task progress must be an integer from 0 to 100")
+            if result is not None and (not isinstance(result, dict) or len(json.dumps(result)) > 8192):
+                raise ValueError("Task result must be an object no larger than 8 KiB")
+            task["state"] = status; task["progress"] = 100 if status == "completed" else progress
+            task["result"] = result or {}; task["error"] = str(error)[:500]; task["updated_at"] = int(time.time())
+            task["lease_expires_at"] = 0 if status in {"completed", "failed"} else int(time.time()) + TASK_LEASE_SECONDS
+            self._save(); return json.loads(json.dumps(task))
+
+    def _reconcile_tasks(self) -> None:
+        now = int(time.time())
+        for task in self.tasks.values():
+            if task.get("state") not in {"assigned", "running"}: continue
+            node = self.nodes.get(task.get("node_id", ""))
+            alive = bool(node and now - int(node.get("last_seen", 0)) <= 15)
+            if alive and int(task.get("lease_expires_at", 0)) > now: continue
+            previous = task.get("node_id"); attempts = int(task.get("attempts", 1))
+            candidates = self._eligible_nodes({previous} if previous else set())
+            task["updated_at"] = now
+            if candidates and attempts < int(task.get("max_attempts", TASK_MAX_ATTEMPTS)):
+                next_node = min(candidates, key=lambda n: sum(1 for other in self.tasks.values() if other.get("node_id") == n["id"] and other.get("state") in {"assigned", "running"}))
+                task["node_id"] = next_node["id"]; task["attempts"] = attempts + 1
+                task["state"] = "assigned"; task["progress"] = 0
+                task["lease_expires_at"] = now + TASK_LEASE_SECONDS
+                task["error"] = "Reassigned after worker heartbeat or task lease expired"
+            else:
+                task["state"] = "failed"; task["lease_expires_at"] = 0
+                task["error"] = "Worker unavailable or task lease expired; no retry remains"
+
+    def task_snapshot(self) -> list[dict[str, Any]]:
+        with self.lock:
+            self._reconcile_tasks(); self._save()
+            return [json.loads(json.dumps(t)) for t in sorted(self.tasks.values(), key=lambda item: item.get("created_at", 0), reverse=True)]
+
     def revoke(self, node_id: str) -> bool:
         with self.lock:
             existed = self.nodes.pop(node_id, None) is not None
@@ -276,6 +372,11 @@ class ClusterControlServer:
                         self._send(200, owner.registry.config.to_dict())
                     except PermissionError as exc:
                         self._send(401, {"error": str(exc)})
+                elif self.path == "/api/v1/tasks":
+                    try:
+                        self._send(200, {"tasks": owner.registry.poll_tasks(self._token())})
+                    except PermissionError as exc:
+                        self._send(403, {"error": str(exc)})
                 else:
                     self._send(404, {"error": "Not found"})
             def do_POST(self) -> None:
@@ -292,6 +393,15 @@ class ClusterControlServer:
                         owner.registry.acknowledge(self._token(), int(body.get("revision", 0)),
                             body.get("accepted") is True, str(body.get("reason", "")))
                         self._send(200, {"ok": True})
+                    elif self.path.startswith("/api/v1/tasks/") and self.path.endswith("/status"):
+                        task_id = self.path[len("/api/v1/tasks/"):-len("/status")].strip("/")
+                        if not task_id or "/" in task_id:
+                            self._send(404, {"error": "Task not found"})
+                        else:
+                            task = owner.registry.update_task_status(self._token(), task_id,
+                                str(body.get("status", "")), body.get("progress", 0),
+                                body.get("result"), str(body.get("error", "")))
+                            self._send(200, {"task": task})
                     else:
                         self._send(404, {"error": "Not found"})
                 except PermissionError as exc:

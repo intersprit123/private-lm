@@ -61,3 +61,10 @@ This is a control plane, not an inference transport. It does not forward tensors
 Members may report `worker_state` (`starting`, `ready`, `busy`, `stopped`, or `error`), `native_rpc_version`, `worker_throttled`, `worker_memory_available_mb`, and `worker_memory_held_mb`. The coordinator exposes `worker_ready`, `compute_eligible`, and a per-device `memory` summary in its local device snapshot. Eligibility requires a fresh heartbeat, a ready worker, rpc7, and no reported Android throttling.
 
 Memory values are per-device estimates, not pooled physical RAM. The safe worker budget is reported separately from total free memory, and the coordinator clamps untrusted numeric reports. Eligibility is only a scheduling prerequisite; it does not prove tensor execution or Windows↔Android RPC interoperability.
+
+
+## Worker task queue (protocol v1 extension)
+
+Windows accepts only the allowlisted task types worker_probe, memory_report, and benchmark. An authenticated member polls GET /api/v1/tasks; tasks are scoped to that device credential. Members report progress using POST /api/v1/tasks/{task_id}/status with status (running, completed, or failed), progress (0–100), and optional bounded result or error objects.
+
+Each assignment has a 30-second lease and at most three attempts. Expired leases or offline workers are reassigned to another eligible worker when available; otherwise the task is marked failed. Task payloads and results are limited to 8 KiB. This is control-plane groundwork: current Android builds do not yet poll this endpoint or execute these task types, so a queued health check waits until Android worker polling is implemented. It does not execute arbitrary commands or perform distributed inference.

@@ -45,6 +45,56 @@ class ClusterRegistryTests(unittest.TestCase):
         self.assertFalse(node["compute_eligible"])
         self.assertEqual(node["memory"]["reported_free_mb"], 1048576)
 
+    def make_eligible(self, paired):
+        self.registry.heartbeat(paired["credential"], {"status": "ready", "capabilities": {
+            "worker_state": "ready", "native_rpc_version": "rpc7", "worker_throttled": False,
+            "ram_available_mb": 4096, "worker_memory_available_mb": 2800,
+        }})
+
+    def test_task_assignment_poll_and_completion(self):
+        paired = self.pair_one()
+        self.make_eligible(paired)
+        task = self.registry.create_task("worker_probe", {"nonce": "test"}, paired["node_id"])
+        self.assertEqual(task["state"], "assigned")
+        claimed = self.registry.poll_tasks(paired["credential"])
+        self.assertEqual(len(claimed), 1)
+        self.assertEqual(claimed[0]["id"], task["id"])
+        updated = self.registry.update_task_status(paired["credential"], task["id"], "completed", 100, {"ok": True})
+        self.assertEqual(updated["state"], "completed")
+        self.assertEqual(self.registry.task_snapshot()[0]["result"], {"ok": True})
+
+    def test_task_rejects_untrusted_or_ineligible_worker(self):
+        paired = self.pair_one()
+        with self.assertRaisesRegex(ValueError, "No online"):
+            self.registry.create_task("worker_probe", {}, paired["node_id"])
+        self.make_eligible(paired)
+        with self.assertRaisesRegex(ValueError, "Unsupported"):
+            self.registry.create_task("shell", {}, paired["node_id"])
+        with self.assertRaisesRegex(ValueError, "8 KiB"):
+            self.registry.create_task("worker_probe", {"data": "x" * 9000}, paired["node_id"])
+
+    def test_task_is_scoped_to_credential(self):
+        first = self.pair_one()
+        self.make_eligible(first)
+        task = self.registry.create_task("worker_probe", {}, first["node_id"])
+        second_code, _ = self.registry.issue_pairing_code()
+        second = self.registry.pair("192.168.1.21", second_code, {"name": "Other phone"})
+        with self.assertRaisesRegex(ValueError, "not assigned"):
+            self.registry.update_task_status(second["credential"], task["id"], "completed", 100)
+
+    def test_expired_task_is_reassigned(self):
+        first = self.pair_one()
+        self.make_eligible(first)
+        task = self.registry.create_task("worker_probe", {}, first["node_id"])
+        second_code, _ = self.registry.issue_pairing_code()
+        second = self.registry.pair("192.168.1.21", second_code, {"name": "Backup phone"})
+        self.make_eligible(second)
+        self.registry.tasks[task["id"]]["lease_expires_at"] = 1
+        snapshot = self.registry.task_snapshot()
+        self.assertEqual(snapshot[0]["state"], "assigned")
+        self.assertEqual(snapshot[0]["node_id"], second["node_id"])
+        self.assertEqual(snapshot[0]["attempts"], 2)
+
     def test_revocation_invalidates_credential(self):
         paired = self.pair_one()
         self.assertTrue(self.registry.revoke(paired["node_id"]))
