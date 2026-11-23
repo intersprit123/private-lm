@@ -54,6 +54,7 @@ class HostApp:
         self.proc = None
         self.control: ClusterControlServer | None = None
         self.registry = ClusterRegistry(data_dir() / "cluster_state.json")
+        self._last_config_revision = self.registry.config.revision
         self.log_queue: queue.Queue[str] = queue.Queue()
         self.log_path = data_dir() / "llama-server.log"
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -548,6 +549,8 @@ class HostApp:
                 messagebox.showinfo(APP, "No GPU device IDs were parsed. Review the activity log and ensure your llama-server build includes a GPU backend.")
                 return
             self.llama_devices = list(dict(devices).items())
+            inventory_config = self.registry.update_config({"available_gpu_devices": [{"id": i, "name": n} for i, n in self.llama_devices]})
+            self._last_config_revision = inventory_config["revision"]
             # Keep only selections that still exist after re-detection.
             valid = {device_id for device_id, _name in self.llama_devices}
             selected = [x.strip() for x in self.gpu_devices.get().split(",") if x.strip() in valid]
@@ -690,8 +693,10 @@ class HostApp:
                 "ram_budget_percent": int(self.ram_budget.get()), "image_backend": self.image_backend.get(),
                 "startup_behavior": self.startup.get(), "text_scale": self.text_scale.get(),
                 "selected_gpu_ids": [x.strip() for x in self.gpu_devices.get().split(",") if x.strip()],
+                "available_gpu_devices": [{"id": i, "name": n} for i, n in self.llama_devices],
                 "model_label": Path(self.model.get()).name if self.model.get() else ""}
             config = self.registry.update_config(changes)
+            self._last_config_revision = config["revision"]
             self._save_settings()
             self.log(f"Published cluster settings revision {config['revision']} to paired members (members apply after heartbeat).")
             self._refresh_nodes()
@@ -699,6 +704,9 @@ class HostApp:
             messagebox.showerror(APP, f"Settings were not published: {exc}")
 
     def _refresh_nodes(self) -> None:
+        current_config = self.registry.config.to_dict()
+        if current_config["revision"] != self._last_config_revision:
+            self._apply_remote_compute_config(current_config)
         if hasattr(self, "nodes"):
             self.nodes.delete(0, "end")
             for node in self.registry.snapshot():
@@ -707,6 +715,30 @@ class HostApp:
                 self.nodes.insert("end", f"{node['id']}  |  {node['name']} ({node['platform']})  |  {status}  |  {ack}")
         self.root.after(2500, self._refresh_nodes)
 
+    def _apply_remote_compute_config(self, config: dict) -> None:
+        self._last_config_revision = config["revision"]
+        mode = config.get("execution_mode", "performance")
+        policy = config.get("gpu_policy", "auto")
+        selected = config.get("selected_gpu_ids", [])
+        inventory = config.get("available_gpu_devices", [])
+        if mode not in {"performance", "extreme_force"} or policy not in {"single", "all_compatible"}: return
+        if not isinstance(selected, list) or not selected or not isinstance(inventory, list):
+            self.log("Remote GPU selection is incomplete; no change applied.")
+            return
+        self.llama_devices = [(str(x.get("id", "")), str(x.get("name", "GPU"))) for x in inventory if isinstance(x, dict) and x.get("id")]
+        valid = {device_id for device_id, _name in self.llama_devices}
+        if any(x not in valid for x in selected) or (policy == "single" and len(selected) != 1):
+            self.log("Remote GPU selection is invalid for this host; ignored.")
+            return
+        changed = self.mode.get() != mode or self.gpu_policy.get() != policy or self.gpu_devices.get() != ",".join(selected)
+        self.mode.set(mode); self.gpu_policy.set(policy); self.gpu_devices.set(",".join(selected))
+        if hasattr(self, "gpu_checks"): self._render_gpu_choices()
+        self._save_settings()
+        if changed:
+            self.log("Android selected " + mode + ", " + policy + ": " + ", ".join(selected))
+            if self.proc and self.proc.poll() is None:
+                self.stop(); self.start()
+            else: self.log("GPU selection saved; start inference to use it.")
     def revoke_selected(self) -> None:
         selection = self.nodes.curselection()
         if not selection: return

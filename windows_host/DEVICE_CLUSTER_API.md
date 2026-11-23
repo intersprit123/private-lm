@@ -21,6 +21,10 @@ POST /api/v1/pair
 
 Success returns node_id, a per-device credential (shown only once), and the current config. Store the credential in the platform secure credential store, not in a QR code or ordinary preferences. Pairing response: 200; invalid/expired/used code: 403; malformed request: 400.
 
+## Windows GPU selection from a paired device
+
+An authenticated member may POST `/api/v1/compute` with `execution_mode` (`performance` or `extreme_force`), `gpu_policy` (`single` or `all_compatible`), and `selected_gpu_ids`. IDs must come from the Windows host detected llama.cpp GPU inventory. This changes the Windows host inference settings; it does not combine GPU memory across devices.
+
 ## Authenticated member endpoints
 
 Send Authorization: Bearer <credential> over the fingerprint-pinned TLS connection.

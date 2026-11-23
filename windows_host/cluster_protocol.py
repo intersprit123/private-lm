@@ -177,6 +177,25 @@ class ClusterRegistry:
             self._save()
             return self.config.to_dict()
 
+    def update_compute_options(self, token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            self._auth(token)
+            mode = str(payload.get("execution_mode", ""))
+            policy = str(payload.get("gpu_policy", ""))
+            selected = payload.get("selected_gpu_ids")
+            if mode not in {"performance", "extreme_force"}:
+                raise ValueError("Unsupported execution mode")
+            if policy not in {"single", "all_compatible"} or not isinstance(selected, list) or any(not isinstance(x, str) for x in selected):
+                raise ValueError("Invalid GPU selection")
+            available = {str(x["id"]) for x in self.config.available_gpu_devices}
+            if not selected or any(x not in available for x in selected) or len(set(selected)) != len(selected):
+                raise ValueError("Choose GPU IDs from the Windows host inventory")
+            if policy == "single" and len(selected) != 1:
+                raise ValueError("Single-GPU mode requires exactly one GPU")
+            self.config = self.config.next_revision(execution_mode=mode, gpu_policy=policy, selected_gpu_ids=selected)
+            self._save()
+            return self.config.to_dict()
+
     def revoke(self, node_id: str) -> bool:
         with self.lock:
             existed = self.nodes.pop(node_id, None) is not None
@@ -247,6 +266,8 @@ class ClusterControlServer:
                         self._send(200, result)
                     elif self.path == "/api/v1/heartbeat":
                         self._send(200, owner.registry.heartbeat(self._token(), body))
+                    elif self.path == "/api/v1/compute":
+                        self._send(200, owner.registry.update_compute_options(self._token(), body))
                     elif self.path == "/api/v1/ack":
                         owner.registry.acknowledge(self._token(), int(body.get("revision", 0)),
                             body.get("accepted") is True, str(body.get("reason", "")))
