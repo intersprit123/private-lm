@@ -156,8 +156,37 @@ class ServerView extends GetView<ServerController> {
               const SizedBox(height: 12),
               _HealthTest(baseUrl: controller.localUrl.value),
 
-              // ── Examples ──
-              const SectionHeader('Usage examples'),
+              // ── Server commands ──
+              const SectionHeader('Server commands'),
+              _CodeBlock(
+                title: 'Health check (curl)',
+                lang: 'bash',
+                code: 'curl ${controller.baseUrl}/health',
+              ),
+              const SizedBox(height: 12),
+              _CodeBlock(
+                title: 'Reveal API key (curl)',
+                lang: 'bash',
+                code: 'curl "${controller.baseUrl}/health?help=${Uri.encodeQueryComponent(controller.helpPassword.value)}"',
+              ),
+              const SizedBox(height: 12),
+              _CodeBlock(
+                title: 'Health check (PowerShell)',
+                lang: 'powershell',
+                code: 'Invoke-RestMethod -Uri "${controller.baseUrl}/health"',
+              ),
+              const SizedBox(height: 12),
+              _CodeBlock(
+                title: 'Reveal API key (PowerShell)',
+                lang: 'powershell',
+                code: 'Invoke-RestMethod -Uri "${controller.baseUrl}/health?help=${Uri.encodeQueryComponent(controller.helpPassword.value)}"',
+              ),
+              const SizedBox(height: 12),
+              _CodeBlock(
+                title: 'List models',
+                lang: 'curl',
+                code: 'curl ${controller.baseUrl}/v1/models${_authHeader()}',
+              ),
               _CodeBlock(
                 title: 'List models',
                 lang: 'curl',
