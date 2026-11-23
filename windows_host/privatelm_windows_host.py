@@ -180,6 +180,7 @@ class HostApp:
         for name, btn in self.nav_buttons.items():
             btn.configure(bg="#1b3d65" if name == page else "#0b1628",
                           fg="white" if name == page else "#c6d5e8")
+        self.text = None
         for child in self.page_area.winfo_children(): child.destroy()
         if page == "Dashboard":
             self._dashboard_page()
@@ -358,6 +359,7 @@ class HostApp:
 
     def _show_page(self, index: int) -> None:
         self.page_index = index
+        self.text = None
         for child in self.page_area.winfo_children():
             child.destroy()
         titles = ["Identifying your hardware", "Choose your compute devices", "Memory and context", "Choose your AI engine", "Save and connect", "Your PrivateLM host"]
@@ -747,16 +749,30 @@ class HostApp:
             self.registry.revoke(node["id"]); self._refresh_nodes(); self.log(f"Revoked device {node['name']}.")
 
     def log(self, message: str) -> None:
-        if hasattr(self, "text"):
-            self.text.configure(state="normal")
-            self.text.insert("end", message.rstrip() + "\n")
-            self.text.see("end"); self.text.configure(state="disabled")
+        # Log output must never break service startup when the Logs page was replaced.
+        widget = getattr(self, "text", None)
+        if widget is None:
+            return
+        try:
+            if not widget.winfo_exists():
+                self.text = None
+                return
+            widget.configure(state="normal")
+            widget.insert("end", message.rstrip() + "\n")
+            widget.see("end")
+            widget.configure(state="disabled")
+        except tk.TclError:
+            self.text = None
 
     def _drain(self) -> None:
-        while True:
-            try: self.log(self.log_queue.get_nowait())
-            except queue.Empty: break
-        self.root.after(150, self._drain)
+        try:
+            while True:
+                try: self.log(self.log_queue.get_nowait())
+                except queue.Empty: break
+            if self.root.winfo_exists():
+                self.root.after(150, self._drain)
+        except tk.TclError:
+            return
 
     def close(self) -> None:
         self.stop(); self.stop_control(); self.root.destroy()
