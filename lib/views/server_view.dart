@@ -116,6 +116,32 @@ class ServerView extends GetView<ServerController> {
               ),
             ),
 
+            // ── Help password ──
+            const SectionHeader('API key lookup'),
+            AppGroup(children: [
+              AppField(
+                label: 'Health lookup password',
+                helper: 'Use /health?help=YOUR_PASSWORD to reveal the API key. Default: 1234.',
+                child: TextField(
+                  controller: controller.helpPasswordCtrl,
+                  onChanged: controller.onHelpPasswordEdited,
+                  onSubmitted: (_) => controller.saveSettings(),
+                  obscureText: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  decoration: appInputDecoration(
+                    context,
+                    hint: 'Enter lookup password',
+                    suffix: IconButton(
+                      tooltip: 'Save password',
+                      onPressed: controller.saveSettings,
+                      icon: const Icon(Icons.save_rounded, size: 18),
+                    ),
+                  ),
+                ),
+              ),
+            ]),
+
             // ── Endpoints ──
             if (isRunning) ...[
               const SectionHeader('Endpoints'),
