@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - android
+      - feature/device-cluster-android-control
     paths:
       - "lib/**"
       - "android/**"

@@ -1,5 +1,5 @@
 import 'dart:async';
-
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:llama_flutter_android/llama_flutter_android.dart';
@@ -8,8 +8,9 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../core/ui.dart';
 import '../services/cluster_service.dart';
+import '../widgets/windows_coordinator_panel.dart';
 
-/// Phone cluster: pick Master (runs the model) or Worker (lends this phone),
+/// Device Cluster: pick Master (runs the model) or Worker (lends this phone),
 /// and pair them by scanning the worker's QR code.
 class ClusterView extends StatefulWidget {
   const ClusterView({super.key});
@@ -44,7 +45,7 @@ class _ClusterViewState extends State<ClusterView> {
     final t = AppTokens.of(context);
     return Scaffold(
       backgroundColor: t.bg,
-      appBar: appScreenBar(context, title: 'Phone cluster', showBack: true),
+      appBar: appScreenBar(context, title: 'Device Cluster', showBack: true),
       body: Obx(() {
         final role = cluster.role;
         return ListView(
@@ -184,7 +185,7 @@ class _ClusterViewState extends State<ClusterView> {
               'iOS pauses apps in the background. Close PrivateLM to stop sharing.'
           : 'Keep this phone plugged in and on the same Wi-Fi, with PrivateLM '
               'open: the screen stays on while sharing, because Android slows '
-              'background work. Set Phone cluster to Off to stop.'),
+              'background work. Set Device Cluster to Off to stop.'),
     ];
   }
 
@@ -196,6 +197,10 @@ class _ClusterViewState extends State<ClusterView> {
   List<Widget> _masterSection(BuildContext context) {
     final t = AppTokens.of(context);
     return [
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) ...[
+        const WindowsCoordinatorPanel(),
+        const SizedBox(height: 16),
+      ],
       if (cluster.split.length > 1) ...[
         _SplitCard(shares: cluster.split),
         const SizedBox(height: 16),
@@ -211,7 +216,7 @@ class _ClusterViewState extends State<ClusterView> {
           EmptyState(
             icon: Icons.devices_other_rounded,
             title: 'No workers yet',
-            message: 'On each other phone, open Phone cluster, choose Worker, '
+            message: 'On each other phone, open Device Cluster, choose Worker, '
                 'then scan the QR code it shows.',
           ),
         ])

@@ -14,7 +14,7 @@ import '../core/ui.dart';
 import 'app_log_service.dart';
 import 'hive_service.dart';
 
-/// What this phone does in a phone cluster.
+/// What this phone does in a device cluster.
 enum ClusterRole {
   off,
 
@@ -42,7 +42,7 @@ class _Phone {
   _Phone(this.worker, this.capacityMb, this.speed);
 }
 
-/// Phone cluster: spread a GGUF model across phones on the same Wi-Fi.
+/// Device Cluster: spread a GGUF model across phones on the same Wi-Fi.
 /// The master runs the model; workers hold part of its layers.
 class ClusterService extends GetxService {
   final HiveService _hive = Get.find<HiveService>();
@@ -294,7 +294,7 @@ class ClusterService extends GetxService {
     }
     if (moved > 0) {
       await _save();
-      Get.find<AppLogService>().info('Phone cluster: found $moved worker(s) at a new address');
+      Get.find<AppLogService>().info('Device Cluster: found $moved worker(s) at a new address');
     }
     return unreachable;
   }
@@ -364,7 +364,7 @@ class ClusterService extends GetxService {
     final available = workers.where((w) => !offline.any((o) => o.endpoint == w.endpoint)).toList();
     if (offline.isNotEmpty) {
       final names = offline.map((w) => w.model ?? w.name).join(', ');
-      showToast('Phone cluster', 'Not reachable, loading without: $names');
+      showToast('Device Cluster', 'Not reachable, loading without: $names');
     }
 
     final modelMb = await File(modelPath).length() / (1024 * 1024);
@@ -417,7 +417,7 @@ class ClusterService extends GetxService {
     } on PlatformException catch (e) {
       throw Exception(
           '${e.message ?? 'A worker is unreachable'}. Turn on Worker on that '
-          'phone, or set this phone\'s Phone cluster to Off.');
+          'phone, or set this phone\'s Device Cluster to Off.');
     }
     return used.length;
   }
